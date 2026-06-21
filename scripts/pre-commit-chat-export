@@ -1,0 +1,52 @@
+#!/bin/sh
+# Pre-commit hook: exporteer Copilot Chat sessies naar doc/copilot-chats/exports/
+#
+# Dit script draait automatisch voor elke commit en exporteert nieuwe/gewijzigde
+# chat-sessies naar Markdown bestanden in de repo, zodat ze via git gesynchroniseerd
+# worden tussen machines.
+#
+# Installatie (vanuit repo root):
+#   cp scripts/pre-commit-chat-export .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+#
+# Of via PowerShell:
+#   pwsh scripts/install-chat-hook.ps1
+#
+# Als er al een pre-commit hook is, voeg deze regel toe:
+#   scripts/pre-commit-chat-export
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Bepaal repo root (werkt vanuit .git/hooks/ én vanuit scripts/)
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO_ROOT" ]; then
+    REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
+
+EXPORT_SCRIPT="$REPO_ROOT/scripts/export-copilot-chats.py"
+
+if [ ! -f "$EXPORT_SCRIPT" ]; then
+    echo "[chat-export] Export script niet gevonden: $EXPORT_SCRIPT"
+    exit 0  # niet blokkeren op ontbrekend script
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+    PYTHON_CMD=python3
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_CMD=python
+elif command -v py >/dev/null 2>&1; then
+    PYTHON_CMD='py -3'
+else
+    echo "[chat-export] Geen Python interpreter gevonden (probeerde: python3, python, py -3)."
+    exit 0
+fi
+
+cd "$REPO_ROOT" || exit 0
+$PYTHON_CMD scripts/export-copilot-chats.py
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+    echo "[chat-export] Export mislukt met exitcode $EXIT_CODE (niet blokkerend)."
+fi
+
+exit 0
