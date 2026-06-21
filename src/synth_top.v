@@ -29,11 +29,12 @@ module synth_top (
     end
 
    // --- COËFFICIËNTEN IN Q12.20 FORMAAT ---
-    // Perfect stabiel voor een diepe transiënt rond de 90 Hz die direct uitdempt:
-    wire signed [31:0] a1 = 32'h001FF900; // ~1.9982 (Bepaalt de lage toonhoogte)
-    wire signed [31:0] a2 = 32'hFFF00400; // ~-0.9990 (Zorgt voor een lange, stabiele decay ZONDER overflow!)
-    wire signed [31:0] b0 = 32'h00040000; // Krachtige input-gain voor de begin-plonk
-    
+    // a1 staat nu op ~1.99998 (dit dwingt de frequentie naar de sub-regio)
+    // a2 staat op ~-0.9995 (zorgt voor een lange, organische decay)
+    wire signed [31:0] a1 = 32'h001FFFF0; 
+    wire signed [31:0] a2 = 32'hFFEFFF00; 
+    wire signed [31:0] b0 = 32'h00040000; // Input gain voor de aanzet
+          
     // --- TEST SIGNAAL GENERATOR (Aangepast naar Q12.20) ---
     reg [7:0] pulse_counter;
     reg signed [31:0] f_in;
