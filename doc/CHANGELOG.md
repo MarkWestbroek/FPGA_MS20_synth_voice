@@ -2,11 +2,18 @@
 
 Voortgangslog. Nieuwste bovenaan. Zie [ROADMAP.md](ROADMAP.md) voor wat nog komt.
 
-## 2026-06-22 — Fase 2 (start): SPI control-interface
-- `spi_slave.v`: SPI mode-0 byte-ontvanger met CDC (2-FF sync + SCLK-flankdetectie).
-- `spi_control.v`: 4-byte pakket-decoder → note_period/trigger/gate/g/k/drive/mode.
-- `spi_control_tb.v`: zelf-controlerende testbench, **8/8 PASS** in DSim.
-- Nog te doen: wiring in `synth_top` (trigger naar ce-domein tillen) + param-schaling.
+## 2026-06-22 — Fase 2: SPI afgestemd op MusicBrain
+- MusicBrain-project gelezen (ADR 0010/0011, frame-protocol, twee-Teensy-split).
+  Besluit: FPGA = SPI-slave "instrument" op de Teensy-4.1-brain bus; audio uit via
+  I2S DAC (analoog) **en** een Teensy 4.1 (USB-opname).
+- `spi_frame.v`: **MusicBrain frame v1**-decoder met CRC-16/CCITT-FALSE; opcodes
+  Ping/CvSet/GateSet → pitch/cutoff/reson/drive-CV + gate/trigger.
+- `spi_frame_tb.v`: zelf-controlerende testbench, **10/10 PASS** (incl. CRC-rejectie).
+- `spi_slave.v` (mode-0 byte-ontvanger + CDC) blijft de onderlaag.
+- Tussenstap `spi_control.v` (eigen `[cmd][voice][hi][lo]`-protocol, 8/8 PASS)
+  vervangen door bovenstaande frame-decoder.
+- Roadmap: flashen naar bord (.cst → bitstream → openFPGALoader/Gowin Programmer)
+  expliciet toegevoegd aan Fase 3.
 
 ## 2026-06-22 — Fase 1: filter naar MS-20-feel
 - `ms20_filter.v` herschreven als FSM met **2× oversampling** en een **`drive`**-

@@ -7,12 +7,23 @@ voor MIDI-in en USB-audio, als extra stemmen-bron voor een Eurorack-brain.
 Zie ook [ARCHITECTURE.md](ARCHITECTURE.md) (diagrammen) en
 [CHANGELOG.md](CHANGELOG.md) (wat er al gedaan is).
 
-## Doel-architectuur (kort)
-- **Teensy 3.2** = control-brain / SPI-master (USB-MIDI → SPI, CV). De FPGA wordt
-  een extra **SPI-slave** op de bestaande Eurorack-bus.
-- **Teensy 4.1** = USB-audio-bridge: leest I2S van de FPGA en stuurt door als
-  USB-audio (de 3.2 z'n USB-audio is daarvoor te zwak).
-- **FPGA** = oscillatoren (KS) + MS-20 filters, polyfoon.
+## Doel-architectuur (kort) — afgestemd op MusicBrain
+Zie `D:\Git\Muziek\MusicBrain` (ADR 0010/0011, `doc/protocols/spi-frame.md`,
+`doc/tech/two-teensy-spi.md`).
+
+- **Brain = Teensy 4.1**, SPI-**master**. Doet MIDI-in → voice-allocatie → stuurt
+  per-stem **pitch-CV + gate (+ filter-CV)** over de bestaande SPI-frame-bus.
+  (De 3.2 vervalt — niet nodig.)
+- **FPGA = SPI-slave "instrument"**: consumeert die CV/gate-frames en zet ze om
+  in KS-toonhoogte (period) + filter g/k. Dit is precies de "audio-instrument"-rol
+  die MusicBrain al voor de audio-Teensy had bedacht.
+- **Audio uit**: FPGA → I2S → DAC (PCM5102) → analoog de modular in. Optioneel
+  een Teensy 4.1 die I2S meeluistert → USB-audio voor opname.
+
+> **Let op (ontwerpbeslissing open):** de huidige Fase-2 SPI gebruikt een eigen
+> `[cmd][voice][hi][lo]`-protocol. Voor echte integratie moet dit het MusicBrain
+> **frame-protocol** spreken (`[0xA5][VER][OPCODE][LEN][PAYLOAD][CRC16]`,
+> CvSet/GateSet, CRC-16/CCITT). Zie Fase 2.
 
 ## Fasen
 
@@ -26,19 +37,30 @@ Zie ook [ARCHITECTURE.md](ARCHITECTURE.md) (diagrammen) en
 
 ### 🔶 Fase 2 — SPI control-interface (FPGA als slave) — IN UITVOERING
 - [x] `spi_slave.v` (mode 0, MSB-first) met CDC (2-FF sync + flankdetectie).
-- [x] `spi_control.v` command-decoder, protocol `[cmd][voice][param_hi][param_lo]`:
-      NOTE_ON (→period), NOTE_OFF, CUTOFF, RESON, DRIVE, MODE.
-- [x] Zelf-controlerende testbench `spi_control_tb.v` — 8/8 PASS in DSim.
+- [x] `spi_frame.v` — **MusicBrain frame v1**-decoder: `[0xA5][VER][OPCODE][LEN]
+      [PAYLOAD][CRC16]`, CRC-16/CCITT-FALSE, opcodes Ping/CvSet/GateSet. CV-slots →
+      pitch/cutoff/reson/drive; GateSet → gate + trigger-puls.
+- [x] Zelf-controlerende testbench `spi_frame_tb.v` — **10/10 PASS** (incl.
+      CRC-rejectie; DUT+TB berekenen CRC onafhankelijk → kruisgevalideerd).
+- [ ] MISO: Pong-antwoord op Ping (+ later CvInReport indien nodig).
 - [ ] Wiring in `synth_top`: demo-sequencer vervangen door SPI-parameters
       (sequencer behouden als optionele demo-mode). **Integratie-notitie:**
       `trigger` is een sys_clk-puls → in `synth_top` vasthouden tot de volgende
       `sample_clk_tick` (ce) voordat hij naar `ks_string` gaat.
-- [ ] Muzikale schaling van de param-mappings verfijnen (nu vaste shifts).
+- [ ] Pitch-CV → KS-period omzetting (V/oct-achtige mapping, i16 → frequentie).
+- [ ] Muzikale schaling van de param-mappings verfijnen.
 
-### ⬜ Fase 3 — Audio naar Teensy → USB
-- [ ] `i2s_tx.v` (BCLK/LRCLK/DATA, 24-bit, master).
-- [ ] PMOD-pinnen + `.cst` constraints; hardware bring-up op het bord.
-- [ ] Teensy 4.1 firmware: I2S-in → USB-audio-out.
+### ⬜ Fase 3 — Hardware bring-up: bitstream + audio uit
+- [ ] **Pin-constraints** `.cst`: sys_clk, reset, LED, SPI (SCLK/MOSI/MISO/CS),
+      I2S (BCLK/LRCLK/DATA) op de PMOD-poorten van de Tang Primer 20K.
+- [ ] **Synthese → place&route → bitstream** in Gowin EDA (top = `synth_top`;
+      `synth_top_tb`/`spi_control_tb` op enable=0).
+- [ ] **Flashen naar het bord** — twee opties:
+      - *SRAM* (vluchtig, snel testen) via Gowin Programmer of `openFPGALoader`
+        (`openFPGALoader -b tangprimer20k bitstream.fs`).
+      - *Embedded flash* (persistent na power-cycle) voor de definitieve build.
+- [ ] `i2s_tx.v` (BCLK/LRCLK/DATA, 24-bit, master) → PCM5102 DAC → analoog uit.
+- [ ] Optioneel: Teensy 4.1 die I2S meeluistert → USB-audio voor opname.
 
 ### ⬜ Fase 4 — Polyfonie & stemmen-telling
 - [ ] Refactor naar één time-multiplexed voice-engine + gedeelde BRAM.
