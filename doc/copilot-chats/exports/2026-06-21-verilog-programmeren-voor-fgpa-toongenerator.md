@@ -2,7 +2,7 @@
 
 - **Datum**: 2026-06-21 22:28
 - **Sessie-ID**: `920eb751-b462-40af-bba9-956d6f9e3092`
-- **Berichten**: 16
+- **Berichten**: 24
 
 ---
 
@@ -322,5 +322,128 @@ python make_wave.py
 ```
 
 Nu zou de `ms20_filter_output.wav` een duidelijk hoorbare low-pass "wah" per bass-noot moeten hebben!
+
+---
+
+## 🧑 User
+
+het is toch nog steeds enkel nog een tikje
+
+---
+
+## 🤖 Assistant
+
+Laat me kijken wat er nu uit de filter komt:
+
+---
+
+## 🧑 User
+
+hij klinkt goed! Wat zou een volgende stap kunnen zijn?
+
+---
+
+## 🤖 Assistant
+
+Geweldig dat het nu goed klinkt! 🎸 Hier zijn de logische volgende stappen, van snelste winst naar grootste impact:
+
+| # | Stap | Impact | Moeite |
+|---|---|---|---|
+| 1 | **tanh BRAM lookup table** — de piecewise soft-clip vervangen door een echte $\tanh$-tabel in Block RAM. Geeft de authentieke diode-saturatie van de MS-20. | 🔊 Hoog | 🛠️ Middel |
+| 2 | **2× oversampling** — filter intern op 96 kHz draaien, dan decimeren. Voorkomt aliasing van de clipping-harmonieken. | 🔊 Hoog | 🛠️ Middel |
+| 3 | **Gowin-synthese** — het ontwerp compileren voor de Tang Primer 20K. Kijken of het past in de FPGA en op welke kloksnelheid. | 🔌 Hardware | 🛠️ Laag |
+| 4 | **I2S audio-uitgang** — een PMOD I2S interface (PCM5102) aansluiten zodat je écht geluid uit de FPGA krijgt. | 🔌 Hardware | 🛠️ Middel |
+| 5 | **MIDI-besturing** — noten en velocity via MIDI i.p.v. vaste sequencer. | 🎹 Muzikaal | 🛠️ Hoog |
+| 6 | **Trapezoidal integratie** — SVF upgraden naar Zavalishin-methode voor vloeiendere cutoff-modulatie. | 🔧 Technisch | 🛠️ Middel |
+| 7 | **Polyfonie** — meerdere KS-stemmen parallel (de GW2A heeft resources voor 4-8 stemmen). | 🎹 Muzikaal | 🛠️ Hoog |
+
+Mijn advies: begin met **stap 1 (tanh BRAM)** — die geeft het meeste MS-20 karakter voor relatief weinig werk (~2 BSRAM blokken). Daarna **stap 3 (Gowin-synthese)** om te zien of alles op de echte chip past.
+
+Welke richting spreekt je het meeste aan?
+
+---
+
+## 🧑 User
+
+ja, 1 graag
+
+---
+
+## 🤖 Assistant
+
+Goed plan! We vervangen de piecewise soft-clip door een echte $\tanh$-tabel in BRAM. Eerst de Python-generator voor de tabel:
+
+*Created 4 todos · Created gen_tanh_lut.py*
+
+Nu de BRAM Verilog-module en de filter-update:
+
+*Starting: *Create tanh_lut.v BRAM module* (2/4)*
+
+
+
+---
+
+## 🧑 User
+
+ja, netjes. Ik hoor nog niet heel veel verschil, maar om het goed te horen zou ik de oude uit git moeten halen.
+
+Kun jij dat ook doen en hernoemen zodat ik ze achter elkaar kan horen?
+
+WIl je dan naar de volgende stap (3)?
+
+---
+
+## 🤖 Assistant
+
+Goed plan! Eerst de oude WAV's uit git halen en hernoemen, dan door naar Gowin-synthese.
+
+*Created 3 todos*
+
+Nu door naar **stap 3: Gowin-synthese**. Eerst de projectconfiguratie bekijken:
+
+*Starting: *Gowin synthesis: add source files to project* (2/3)*
+
+
+
+*Starting: *Gowin synthesis: add source files to project* (2/3) · Read MS20_Synth_Voice.gprj · Read MS20_Synth_Voice_syn.rpt.html, lines 1 to 50 · Read MS20_Synth_Voice_process_config.json, lines 1 to 40*
+
+Nu de Gowin-projectfile updaten met alle source files:
+De Gowin CLI-tool heeft een aparte license nodig (anders dan de IDE). Laten we een Tcl-script maken dat je vanuit de Gowin IDE kunt draaien:
+
+*Created synth.tcl · Starting: *Run Gowin synthesis, check resource usage* (3/3)*
+
+---
+
+## Klaar voor Gowin-synthese! 🎯
+
+### A/B vergelijking WAVs
+
+Deze bestanden staan klaar in de project-root (gesorteerd op versie):
+
+| Bestand | Versie | Wat |
+|---|---|---|
+| `compare_v01_mass_spring.wav` | v0.1 | Originele mass-spring resonator (géén filter) |
+| `compare_v02_ks_string.wav` | v0.2 | Karplus-Strong, géén filter |
+| `compare_v02_filter_broken.wav` | v0.2 | KS + kapot filter (pre-fix) |
+| `compare_v03_ks_string.wav` | v0.3 | KS droog (huidig) |
+| `compare_v03_filter_tanh.wav` | v0.3 | KS + tanh MS-20 filter (huidig) |
+
+### Gowin-synthese
+
+Het project is klaargezet. **Doe dit in de Gowin IDE:**
+
+1. Open `MS20_Synth_Voice.gprj` in Gowin EDA
+2. Klik op **Run Synthesis** (of open de Tcl-console en run `source synth.tcl`)
+3. Na synthese: open `MS20_Synth_Voice_syn.rpt.html`
+
+De resource-schatting voor het volledige ontwerp (KS + tanh LUT filter):
+
+| Resource | Beschikbaar (GW2A-18C) | Geschat verbruik |
+|---|---|---|
+| LUTs | 20.736 | ~500-800 |
+| DSP slices | 48 | ~10-12 |
+| BSRAM | 23 blokken | ~2-4 |
+
+Dit past met gemak — er is ruimte voor 4-8 polyfone stemmen later!
 
 ---
