@@ -59,9 +59,8 @@ module synth_top_tb();
     // ========================================================================
     always @(posedge sys_clk) begin
         if (sys_rst_n && uut.sample_clk_tick) begin
-            // Eerst alleen de KS-string output loggen ter verificatie,
-            // filter output volgt zodra de x-debug is opgelost.
-            $display("%d", uut.string_out);
+            // Kolom 1: KS string (droog), Kolom 2: MS-20 filter output
+            $display("%d,%d", uut.string_out, audio_out);
         end
     end
 
