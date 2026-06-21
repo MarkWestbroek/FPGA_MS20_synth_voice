@@ -1,78 +1,188 @@
+// ============================================================================
+// SYNTH_TOP — Karplus-Strong Bass + MS-20 Filter
+//
+// Signaalketen:
+//   Trigger → KS String (Karplus-Strong) → MS-20 SVF → Output
+//
+// De KS-string modelleert een getokkelde bass-snaar.
+// Het MS-20 filter voegt analoge warmte en expressie toe.
+// Alles in Q12.20 fixed-point, 48 kHz sample rate.
+// ============================================================================
+
 `timescale 1ns / 1ps
 
 module synth_top (
-    input wire sys_clk,      // Vaste 50MHz klok uit de testbench
-    input wire sys_rst_n,    // Active-low reset
-    output reg led           // Status LED
+    input  wire         sys_clk,      // 50 MHz systeemklok
+    input  wire         sys_rst_n,    // Active-low reset
+    output wire         led,          // Status LED
+    output wire signed [31:0] audio_out  // Q12.20 audio-uitgang
 );
 
     wire rst = !sys_rst_n;
 
-    // --- KLOKVERDELER NAAR AUDIO SAMPLERATE (~48 kHz) ---
-    // 50.000.000 Hz / 1042 = ~48.013 Hz
-    reg [10:0] clk_divider;
-    reg sample_clk_tick;
+    // ========================================================================
+    // KLOKVERDELER: 50 MHz → ~48 kHz
+    // ========================================================================
+    reg  [10:0] clk_divider;
+    reg         sample_clk_tick;
 
     always @(posedge sys_clk or posedge rst) begin
         if (rst) begin
-            clk_divider <= 0;
+            clk_divider     <= 0;
             sample_clk_tick <= 0;
         end else begin
             if (clk_divider >= 11'd1041) begin
-                clk_divider <= 0;
-                sample_clk_tick <= 1; // Eén kloktik hoog elke 48kHz
+                clk_divider     <= 0;
+                sample_clk_tick <= 1;
             end else begin
-                clk_divider <= clk_divider + 1;
+                clk_divider     <= clk_divider + 1;
                 sample_clk_tick <= 0;
             end
         end
     end
 
-   // --- COËFFICIËNTEN IN Q12.20 FORMAAT ---
-    // a1 staat nu op ~1.99998 (dit dwingt de frequentie naar de sub-regio)
-    // a2 staat op ~-0.9995 (zorgt voor een lange, organische decay)
-    wire signed [31:0] a1 = 32'h001FFFF0; 
-    wire signed [31:0] a2 = 32'hFFEFFF00; 
-    wire signed [31:0] b0 = 32'h00040000; // Input gain voor de aanzet
-          
-    // --- TEST SIGNAAL GENERATOR (Aangepast naar Q12.20) ---
-    reg [7:0] pulse_counter;
-    reg signed [31:0] f_in;
+    // ========================================================================
+    // BASS-SEQUENCER: 4 noten, elk ~1.5 seconde
+    //
+    // Noot   Freq     Period (=48kHz/freq)
+    //  E1    41.2 Hz  1165
+    //  A1    55.0 Hz   873
+    //  D2    73.4 Hz   654
+    //  G1    49.0 Hz   980
+    //
+    // Elke noot duurt ~72000 samples (1.5 sec @ 48kHz)
+    // ========================================================================
+    reg [17:0] seq_timer;        // Timer binnen huidige noot
+    reg [1:0]  note_index;       // 0..3
+    reg        trigger_pulse;
+
+    // Noot-periodes (lookup)
+    wire [10:0] note_periods [0:3];
+    assign note_periods[0] = 11'd1165;  // E1
+    assign note_periods[1] = 11'd873;   // A1
+    assign note_periods[2] = 11'd654;   // D2
+    assign note_periods[3] = 11'd980;   // G1
+
+    wire [10:0] current_period = note_periods[note_index];
 
     always @(posedge sys_clk or posedge rst) begin
         if (rst) begin
-            pulse_counter <= 0;
-            f_in <= 32'h0;
-        end else if (sample_clk_tick) begin 
-            if (pulse_counter < 8'hFF) begin
-                pulse_counter <= pulse_counter + 1;
+            seq_timer     <= 0;
+            note_index    <= 0;
+            trigger_pulse <= 0;
+        end else if (sample_clk_tick) begin
+            trigger_pulse <= 0;  // Default laag
+
+            if (seq_timer == 18'd0) begin
+                // Start nieuwe noot
+                trigger_pulse <= 1;
             end
-            
-            if (pulse_counter == 8'd5) begin
-                f_in <= 32'h00100000; // 1.0 in Q12.20
+
+            if (seq_timer >= 18'd72000) begin  // ~1.5 sec per noot
+                seq_timer  <= 0;
+                note_index <= note_index + 1;   // Volgende noot (wraps bij 2 bits)
             end else begin
-                f_in <= 32'h0;
+                seq_timer <= seq_timer + 1;
             end
         end
     end
 
-    wire signed [31:0] audio_signal;
+    // ========================================================================
+    // KARPLUS-STRONG STRING MODEL
+    //
+    // Damping: 0.9995 in Q12.20 ≈ 0x000FFF5C
+    //   Dit geeft ~2.9 sec decay naar stilte — mooi voor bass.
+    // ========================================================================
+    wire signed [31:0] ks_damping = 32'h000FFF6A;  // ~0.9995 Q12.20
+    wire signed [31:0] string_out;
 
-   // --- INSTANTIATIE VAN RESONATOR ---
-    // We draaien op de stabiele sys_clk en sturen de tick mee als clock enable
-    mass_spring_resonator u_resonator (
-        .clk(sys_clk), 
-        .rst(rst),
-        .ce(sample_clk_tick), // <--- We geven de audio-tick mee als enable!
-        .f_in(f_in),
-        .a1(a1),
-        .a2(a2),
-        .b0(b0),
-        .x_out(audio_signal)
+    ks_string #(
+        .MAX_DELAY(2048)
+    ) u_string (
+        .clk      (sys_clk),
+        .rst      (rst),
+        .ce       (sample_clk_tick),
+        .trigger  (trigger_pulse),
+        .period   (current_period),
+        .damping  (ks_damping),
+        .audio_out(string_out)
     );
 
-    always @(posedge sys_clk) begin
-        led <= audio_signal[31];
+    // ========================================================================
+    // MS-20 FILTER — met envelope op de cutoff
+    //
+    // Filter-envelope per noot:
+    //   Attack:  cutoff gaat snel open  (200Hz → 1500Hz in ~50ms)
+    //   Decay:   cutoff zakt langzaam terug (1500Hz → 400Hz in ~1 sec)
+    //
+    // Dit geeft de karakteristieke "wah" per aanslag, typisch voor synth bass.
+    //
+    // g(200Hz)  = 2*pi*200/48000  ≈ 0.02618 → Q12.20: 0x00006B3A
+    // g(400Hz)  = 2*pi*400/48000  ≈ 0.05236 → Q12.20: 0x0000D675
+    // g(1500Hz) = 2*pi*1500/48000 ≈ 0.19635 → Q12.20: 0x0003243F
+    //
+    // Resonance: k ≈ 1.2 voor warme analoge klank (niet schreeuwerig)
+    // ========================================================================
+    reg [15:0] env_timer;
+    reg signed [31:0] filter_g;
+    reg signed [31:0] filter_k;
+    reg        filter_mode;
+
+    // Filter g-waarden voor envelope-punten
+    wire signed [31:0] G_CLOSED = 32'h00006B3A;  // ~200 Hz
+    wire signed [31:0] G_OPEN   = 32'h0003243F;  // ~1500 Hz
+    wire signed [31:0] G_MEDIUM = 32'h0000D675;  // ~400 Hz
+
+    always @(posedge sys_clk or posedge rst) begin
+        if (rst) begin
+            env_timer   <= 0;
+            filter_g    <= G_CLOSED;
+            filter_k    <= 32'h00140000;  // resonance ~1.25
+            filter_mode <= 1'b0;          // Low-pass
+        end else if (sample_clk_tick) begin
+            if (trigger_pulse) begin
+                // Nieuwe noot: reset envelope
+                env_timer <= 0;
+                filter_g  <= G_OPEN;  // Meteen open!
+            end else if (env_timer < 16'd65535) begin
+                env_timer <= env_timer + 1;
+
+                // Envelope: lineaire decay van G_OPEN naar G_MEDIUM
+                // over ~24000 samples (0.5 sec), daarna blijft ie op G_MEDIUM
+                if (env_timer < 16'd24000) begin
+                    // Interpoleer: G_OPEN + (G_MEDIUM - G_OPEN) * (env/24000)
+                    // Vereenvoudigd: stapjes van (G_OPEN - G_MEDIUM) / 24000
+                    // (G_OPEN - G_MEDIUM) = 0x00024DCA
+                    // per sample: ~0x00024DCA / 24000 ≈ 0x19 per sample
+                    // We gebruiken grotere stappen elke 64 samples
+                    if (env_timer[5:0] == 6'd0) begin
+                        filter_g <= filter_g - 32'h000009A0;  // afgeronde stap
+                    end
+                end
+            end
+        end
     end
+
+    // ========================================================================
+    // MS-20 STATE-VARIABLE FILTER
+    // ========================================================================
+    wire signed [31:0] filter_out;
+
+    ms20_filter u_filter (
+        .clk      (sys_clk),
+        .rst      (rst),
+        .ce       (sample_clk_tick),
+        .audio_in (string_out),
+        .audio_out(filter_out),
+        .g        (filter_g),
+        .k        (filter_k),
+        .mode     (filter_mode)
+    );
+
+    // ========================================================================
+    // UITGANGEN
+    // ========================================================================
+    assign audio_out = filter_out;
+    assign led = filter_out[31];
 
 endmodule

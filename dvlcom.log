@@ -1,0 +1,5 @@
+=E:[ParseError]:
+    Parser errors encountered at the following locations:    
+
+    synth_sim_output.vcd:1:1    unrecognized tokens before '$date'    
+
