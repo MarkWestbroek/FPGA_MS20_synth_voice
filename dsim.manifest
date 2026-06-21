@@ -4,6 +4,7 @@ version = 1.0
 
 [source]
 files =
+    tanh_lut.v
     ks_string.v
     mass_spring_resonator.v
     ms20_filter.v

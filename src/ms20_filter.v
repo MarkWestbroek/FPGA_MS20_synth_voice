@@ -1,22 +1,18 @@
 // ============================================================================
 // MS20_FILTER — Korg MS-20 style State-Variable Filter (SVF)
 //
-// Emuleert het karakteristieke MS-20 filtergeluid via een digitale
-// state-variable filter (SVF) met niet-lineaire (tanh-achtige) soft-clipping
-// in de resonantie-terugkoppelpad.
-//
-// Structuur (Chamberlin SVF):
-//   hp = in - lp - k * soft_clip(bp)
+// Structuur (Chamberlin SVF met tanh BRAM LUT):
+//   hp = in - lp - k * tanh(bp)
 //   bp = bp + g * hp
 //   lp = lp + g * bp
+//
+// De tanh-LUT in de resonantie-feedback emuleert de diode-saturatie
+// van de originele MS-20 — authentieke "scream" bij hoge resonance.
 //
 // Parameters (Q12.20 fixed-point):
 //   g  = 2 * pi * fc / fs     (cutoff frequency)
 //   k  = resonance amount      (0..~4, self-oscillatie bij ~4)
 //   mode: 0=LP, 1=HP
-//
-// De soft-clip in de resonantie-feedback geeft de karakteristieke
-// "scream" van de MS-20 wanneer de resonance hoog staat.
 // ============================================================================
 
 `timescale 1ns / 1ps
@@ -43,25 +39,35 @@ module ms20_filter (
     reg signed [31:0] bp;   // Band-pass state
 
     // ========================================================================
-    // Soft-clip (tanh-achtig) voor MS-20 karakter
+    // tanh BRAM Lookup Table — diode-saturatie emulatie
+    //
+    // bp (Q12.20, bereik ~[-4.0, +4.0]) → LUT-adres (0..1023) → tanh(bp)
+    // De LUT heeft 1-cycle latency: lut_tanh = tanh(bp_previous).
+    // Deze kleine vertraging in de feedback-loop is verwaarloosbaar @ 48kHz.
     // ========================================================================
-    // Drempelwaarde: 0.5 in Q12.20 — let op: signed literals gebruiken!
-    wire signed [31:0] CLIP_THR = 32'sh00080000;   // +0.5
-    wire signed [31:0] CLIP_NTHR = -32'sh00080000; // -0.5
+    wire signed [31:0] BP_MAX = 32'sd4194304;   // +4.0 in Q12.20
+    wire signed [31:0] BP_MIN = -32'sd4194304;  // -4.0 in Q12.20
 
-    wire signed [31:0] bp_clipped;
+    wire [9:0] lut_addr;
+    assign lut_addr = (bp > BP_MAX)  ? 10'd1023 :
+                      (bp < BP_MIN)  ? 10'd0 :
+                      (bp + 32'sd4194304) >>> 13;
 
-    assign bp_clipped = (bp > CLIP_THR)  ? (CLIP_THR + ((bp - CLIP_THR) >>> 2)) :
-                        (bp < CLIP_NTHR) ? (CLIP_NTHR + ((bp - CLIP_NTHR) >>> 2)) :
-                        bp;
+    wire signed [31:0] lut_tanh;  // tanh(bp), 1 cycle latency
+
+    tanh_lut u_tanh (
+        .clk      (clk),
+        .addr     (lut_addr),
+        .data_out (lut_tanh)
+    );
 
     // ========================================================================
-    // SVF-berekening (combinatorisch, 1 klokcyclus pipeline)
+    // SVF-berekening
     // ========================================================================
 
-    // Stap 1: hp = in - lp - k * soft_clip(bp)
-    wire signed [63:0] prod_k;    // k * bp_clipped
-    assign prod_k = $signed(k) * $signed(bp_clipped);
+    // Stap 1: hp = in - lp - k * tanh(bp)
+    wire signed [63:0] prod_k;
+    assign prod_k = $signed(k) * $signed(lut_tanh);
 
     // Scale k*bp_clipped terug naar Q12.20 (arithmetic shift >>> 20)
     wire signed [31:0] feedback_scaled;
