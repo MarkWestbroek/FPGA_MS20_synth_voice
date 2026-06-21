@@ -5,7 +5,13 @@
 # Genereert: ks_string_output.wav + ms20_filter_output.wav (indien beschikbaar)
 # ============================================================================
 
-import wave, struct, os
+import wave, struct, os, sys
+
+# Console robuust maken voor ✓/— (anders crash op cp1252 bij redirect/pipe)
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 SIM_FILE = "simulation_output.txt"
 col1_data = []
@@ -66,15 +72,4 @@ def to_wav(data, name, desc):
 to_wav(col1_data, "ks_string_output.wav", "Karplus-Strong droge klank")
 to_wav(col2_data, "ms20_filter_output.wav", "MS-20 gefilterd")
 
-print("\nKlaar!")
-# 4. Schrijf WAV-bestanden
-# ---------------------------------------------------------------------------
-SAMPLE_RATE = 48000
-
-def write_wav(filename, samples):
-    """Schrijf 16-bit mono WAV."""
-    with wave.open(filename, "w") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(SAMPLE_RATE)
 print("\nKlaar!")

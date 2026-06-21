@@ -1,0 +1,81 @@
+// ============================================================================
+// SPI_SLAVE — SPI mode 0 (CPOL=0, CPHA=0), MSB-first, byte-ontvanger
+//
+// De FPGA is slave op de Eurorack-brain SPI-bus (Teensy = master). Dit blok
+// vangt bytes op en levert ze in het sys_clk-domein af. SCLK/MOSI/CS_N worden
+// gesynchroniseerd (2-FF) naar sys_clk en SCLK-flanken worden gedetecteerd —
+// zo is er geen aparte SCLK-klokdomein nodig (eenvoudig en timing-veilig zolang
+// SCLK << sys_clk; bijv. SCLK ≤ ~10 MHz bij 50 MHz sys_clk).
+//
+// Mode 0: MOSI is geldig rond de stijgende SCLK-flank; sample op stijgende flank.
+// CS_N actief-laag omkadert een frame; bij CS_N hoog reset de bit-teller.
+// ============================================================================
+
+`timescale 1ns / 1ps
+
+module spi_slave (
+    input  wire       clk,        // sys_clk (bijv. 50 MHz)
+    input  wire       rst,        // active-high
+
+    // SPI-pinnen (asynchroon t.o.v. clk)
+    input  wire       sclk,
+    input  wire       mosi,
+    input  wire       cs_n,
+
+    // Ontvangen byte (clk-domein)
+    output reg [7:0]  rx_byte,
+    output reg        rx_valid,   // 1-klok puls wanneer rx_byte geldig is
+    output reg        cs_active   // gesynchroniseerd ~cs_n (frame bezig)
+);
+
+    // ----- Synchronisatie naar clk-domein -----
+    reg [2:0] sclk_s;
+    reg [1:0] mosi_s;
+    reg [1:0] cs_s;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            sclk_s <= 3'b000;
+            mosi_s <= 2'b00;
+            cs_s   <= 2'b11;     // idle = CS hoog
+        end else begin
+            sclk_s <= {sclk_s[1:0], sclk};
+            mosi_s <= {mosi_s[0],  mosi};
+            cs_s   <= {cs_s[0],    cs_n};
+        end
+    end
+
+    wire sclk_rise = (sclk_s[2:1] == 2'b01);
+    wire cs_n_sync = cs_s[1];
+
+    // ----- Bit-shift / byte-assemblage -----
+    reg [7:0] shreg;
+    reg [2:0] bitcnt;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            shreg     <= 8'd0;
+            bitcnt    <= 3'd0;
+            rx_byte   <= 8'd0;
+            rx_valid  <= 1'b0;
+            cs_active <= 1'b0;
+        end else begin
+            rx_valid  <= 1'b0;            // default: geen puls
+            cs_active <= ~cs_n_sync;
+
+            if (cs_n_sync) begin
+                bitcnt <= 3'd0;          // frame inactief: opnieuw uitlijnen
+            end else if (sclk_rise) begin
+                shreg <= {shreg[6:0], mosi_s[1]};
+                if (bitcnt == 3'd7) begin
+                    bitcnt   <= 3'd0;
+                    rx_byte  <= {shreg[6:0], mosi_s[1]};
+                    rx_valid <= 1'b1;
+                end else begin
+                    bitcnt <= bitcnt + 3'd1;
+                end
+            end
+        end
+    end
+
+endmodule

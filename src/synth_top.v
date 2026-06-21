@@ -131,7 +131,7 @@ module synth_top (
     reg        filter_mode;
 
     // tanh-drive (Q12.20). 1.0 = 0x00100000 (vrijwel lineair). Hoger = meer bite.
-    wire signed [31:0] filter_drive = 32'h00300000;  // 3.0
+    wire signed [31:0] filter_drive = 32'h00400000;  // 4.0 — aggressief
 
     // Filter g-waarden voor envelope-punten (96 kHz interne rate)
     wire signed [31:0] G_CLOSED = 32'h0000359E;  // ~200 Hz
@@ -142,7 +142,9 @@ module synth_top (
         if (rst) begin
             env_timer   <= 0;
             filter_g    <= G_CLOSED;
-            filter_k    <= 32'h00140000;  // resonance ~1.25
+            // k is de DEMPINGSfactor (q=1/Q): LAGER = meer resonantie.
+            // ~0.25 = hoge resonantie, tanh begrenst de zelfoscillatie (scream).
+            filter_k    <= 32'h00040000;  // ~0.25 — schreeuwerig
             filter_mode <= 1'b0;          // Low-pass
         end else if (sample_clk_tick) begin
             if (trigger_pulse) begin
