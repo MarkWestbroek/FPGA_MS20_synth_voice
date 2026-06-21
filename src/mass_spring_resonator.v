@@ -32,8 +32,11 @@ module mass_spring_resonator (
         prod_b0 = ($signed(b0) * $signed(f_in));
     end
 
-    // Schuif het resultaat terug van Q32.32 naar ons Q16.16 formaat
-    assign next_x = (prod_a1[47:16]) + (prod_a2[47:16]) + (prod_b0[47:16]);
+    // Tel 0.5 op (bit 15 van de 64-bit bus) voor nette afronding in plaats van afkappen
+    wire signed [63:0] full_sum = prod_a1 + prod_a2 + prod_b0 + 64'h8000;
+    
+    // Verschuif nu pas naar Q16.16
+    assign next_x = full_sum[47:16];
 
     // Synchroon blok met clock enable
     always @(posedge clk or posedge rst) begin

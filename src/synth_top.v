@@ -51,10 +51,10 @@ module synth_top (
         // Het destructieve 'else' blok buiten de tick is nu weg!
     end
 
-  // --- COËFFICIËNTEN (Nieuwe test-tuning voor stabiele fixed-point lagere toon) ---
-    wire signed [31:0] a1 = 32'h0001FE00; // Iets lager dan 2.0 (~1.992)
-    wire signed [31:0] a2 = 32'hFFFF0080; // Iets meer marge vanaf -1.0 (~-0.998)
-    wire signed [31:0] b0 = 32'h00001000; // Iets meer input gain zodat de tik harder binnenkomt
+    // --- COËFFICIËNTEN (Nieuwe test-tuning voor stabiele fixed-point lagere toon) ---
+    wire signed [31:0] a1 = 32'h0001FE00; // ~1.992
+    wire signed [31:0] a2 = 32'hFFFF0100; // ~-0.996 (Stabiele sustain dankzij afronding!)
+    wire signed [31:0] b0 = 32'h00004000; // Hardere tik (0.25) om de bitdiepte goed te vullen
 
     wire signed [31:0] audio_signal;
 
