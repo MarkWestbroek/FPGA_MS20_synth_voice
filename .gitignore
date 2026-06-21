@@ -1,0 +1,29 @@
+# Gowin IDE build output
+impl/
+*.gprj.user
+
+# DSim simulation work
+dsim_work/
+
+# Simulation output
+simulation_output.txt
+*.vcd
+*.vcd.tgz
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# DSim logs and databases
+dsim.log
+metrics.db
+
+# Environment files
+dsim.env
+
+# IDE / OS
+.vs/
+.vscode/
+.DS_Store
+Thumbs.db

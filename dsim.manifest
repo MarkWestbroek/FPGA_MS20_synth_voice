@@ -1,0 +1,12 @@
+[manifest]
+name = ms20_synth_sim
+version = 1.0
+
+[source]
+files =
+    mass_spring_resonator.v
+    synth_top.v
+    synth_top_tb.v
+
+[simulate]
+top = synth_top_tb
