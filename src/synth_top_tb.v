@@ -33,10 +33,14 @@ module synth_top_tb();
     // ========================================================================
     // Waveform dump (voor GTKWave / Gowin DSim)
     // ========================================================================
+    // VCD-dump alleen op aanvraag: +define+DUMP_VCD (anders 10+ GB op disk).
+    // Voor audio-export hebben we enkel de $display-CSV nodig.
+`ifdef DUMP_VCD
     initial begin
         $dumpfile("synth_sim_output.vcd");
         $dumpvars(0, synth_top_tb);
     end
+`endif
 
     // ========================================================================
     // Test scenario — ~8 seconden audio

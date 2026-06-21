@@ -117,21 +117,26 @@ module synth_top (
     //
     // Dit geeft de karakteristieke "wah" per aanslag, typisch voor synth bass.
     //
-    // g(200Hz)  = 2*pi*200/48000  ≈ 0.02618 → Q12.20: 0x00006B3A
-    // g(400Hz)  = 2*pi*400/48000  ≈ 0.05236 → Q12.20: 0x0000D675
-    // g(1500Hz) = 2*pi*1500/48000 ≈ 0.19635 → Q12.20: 0x0003243F
+    // LET OP: het filter draait intern op 2x oversampling (96 kHz), dus de
+    // Chamberlin cutoff-coeff is g = 2*sin(pi*fc/96000)  (zie gen_tables.py):
+    //   g(200Hz)  ≈ 0.01309 → Q12.20: 0x0000359E
+    //   g(400Hz)  ≈ 0.02618 → Q12.20: 0x00006B3B
+    //   g(1500Hz) ≈ 0.09814 → Q12.20: 0x000191F6
     //
-    // Resonance: k ≈ 1.2 voor warme analoge klank (niet schreeuwerig)
+    // Resonance: k ≈ 1.25 ; drive ≈ 3.0 duwt de tanh in saturatie (MS-20 bite)
     // ========================================================================
     reg [15:0] env_timer;
     reg signed [31:0] filter_g;
     reg signed [31:0] filter_k;
     reg        filter_mode;
 
-    // Filter g-waarden voor envelope-punten
-    wire signed [31:0] G_CLOSED = 32'h00006B3A;  // ~200 Hz
-    wire signed [31:0] G_OPEN   = 32'h0003243F;  // ~1500 Hz
-    wire signed [31:0] G_MEDIUM = 32'h0000D675;  // ~400 Hz
+    // tanh-drive (Q12.20). 1.0 = 0x00100000 (vrijwel lineair). Hoger = meer bite.
+    wire signed [31:0] filter_drive = 32'h00300000;  // 3.0
+
+    // Filter g-waarden voor envelope-punten (96 kHz interne rate)
+    wire signed [31:0] G_CLOSED = 32'h0000359E;  // ~200 Hz
+    wire signed [31:0] G_OPEN   = 32'h000191F6;  // ~1500 Hz
+    wire signed [31:0] G_MEDIUM = 32'h00006B3B;  // ~400 Hz
 
     always @(posedge sys_clk or posedge rst) begin
         if (rst) begin
@@ -149,9 +154,9 @@ module synth_top (
                     env_timer <= env_timer + 1;
 
                     // Elke 64 samples: stapje dichter naar G_MEDIUM
-                    // (G_OPEN - G_MEDIUM) / (24000/64) = 150986/375 ≈ 0x193
-                    if (env_timer[5:0] == 6'd0 && filter_g > (G_MEDIUM + 32'h193)) begin
-                        filter_g <= filter_g - 32'h00000193;
+                    // (G_OPEN - G_MEDIUM) / (24000/64) = 75451/375 ≈ 0xC9
+                    if (env_timer[5:0] == 6'd0 && filter_g > (G_MEDIUM + 32'hC9)) begin
+                        filter_g <= filter_g - 32'h000000C9;
                     end
                 end
             end
@@ -163,7 +168,9 @@ module synth_top (
     // ========================================================================
     wire signed [31:0] filter_out;
 
-    ms20_filter u_filter (
+    ms20_filter #(
+        .OVERSAMPLE(2)
+    ) u_filter (
         .clk      (sys_clk),
         .rst      (rst),
         .ce       (sample_clk_tick),
@@ -171,6 +178,7 @@ module synth_top (
         .audio_out(filter_out),
         .g        (filter_g),
         .k        (filter_k),
+        .drive    (filter_drive),
         .mode     (filter_mode)
     );
 
