@@ -1,35 +1,48 @@
 `timescale 1ns / 1ps
+
 module mass_spring_resonator (
-    input wire clk,                  // De oversampled klok (bijv. 12 MHz)
-    input wire rst,                  // Reset-signaal
-    input wire signed [31:0] f_in,   // Externe kracht / Exciter puls (Q16.16)
-    input wire signed [31:0] a1,     // Filtercoëfficiënt a1 (Q16.16)
-    input wire signed [31:0] a2,     // Filtercoëfficiënt a2 (Q16.16)
-    input wire signed [31:0] b0,     // Filtercoëfficiënt b0 (Q16.16)
-    output reg signed [31:0] x_out   // Positie van het deeltje / Audio-uit (Q16.16)
+    input wire clk,
+    input wire rst,
+    input wire ce,                    // <--- NIEUW: Clock Enable poort
+    input wire signed [31:0] f_in,     // Externe excitatiekracht (Q16.16)
+    input wire signed [31:0] a1,       // Coëfficiënt 1 (Q16.16)
+    input wire signed [31:0] a2,       // Coëfficiënt 2 (Q16.16)
+    input wire signed [31:0] b0,       // Input gain (Q16.16)
+    output wire signed [31:0] x_out    // Huidige positie / audio out
 );
 
-    // Registers voor de geschiedenis (toestanden: x[n-1] en x[n-2])
-    reg signed [31:0] x_z1;
-    reg signed [31:0] x_z2;
+    // Interne registers voor de delay-lines (geschiedenis)
+    reg signed [31:0] x;
+    reg signed [31:0] x_prev;
 
-    // Tussenproducten van de vermenigvuldigingen (64-bit signed vanwege Q16.16 * Q16.16)
-    wire signed [63:0] p1 = a1 * x_z1;
-    wire signed [63:0] p2 = a2 * x_z2;
-    wire signed [63:0] p3 = b0 * f_in;
+    // Output koppelen aan de huidige status
+    assign x_out = x;
 
-    // Schalen naar Q16.16 (pak bits 47 t/m 16) en tel ze bij elkaar op
-    wire signed [31:0] x_next = p1[47:16] + p2[47:16] + p3[47:16];
+    // Tijdelijke 64-bit registers voor de fixed-point vermenigvuldigingen
+    reg signed [63:0] prod_a1;
+    reg signed [63:0] prod_a2;
+    reg signed [63:0] prod_b0;
+    
+    wire signed [31:0] next_x;
 
+    // Berekening van het mass-spring model: x[n] = a1*x[n-1] + a2*x[n-2] + b0*f_in[n]
+    always @(*) begin
+        prod_a1 = ($signed(a1) * $signed(x));
+        prod_a2 = ($signed(a2) * $signed(x_prev));
+        prod_b0 = ($signed(b0) * $signed(f_in));
+    end
+
+    // Schuif het resultaat terug van Q32.32 naar ons Q16.16 formaat
+    assign next_x = (prod_a1[47:16]) + (prod_a2[47:16]) + (prod_b0[47:16]);
+
+    // Synchroon blok met clock enable
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            x_out <= 32'h0;
-            x_z1  <= 32'h0;
-            x_z2  <= 32'h0;
-        end else begin
-            x_out <= x_next;
-            x_z1  <= x_next; // Schuif het verleden door
-            x_z2  <= x_z1;
+            x <= 32'h0;
+            x_prev <= 32'h0;
+        end else if (ce) begin        // <--- ALTHANS HIER: Bereken alleen bij audio-tick!
+            x_prev <= x;
+            x <= next_x;
         end
     end
 

@@ -25,21 +25,20 @@ module synth_top_tb();
         $dumpvars(0, synth_top_tb);
     end
 
-    // Test scenario
+  // Test scenario in src/synth_top_tb.v
     initial begin
         sys_rst_n = 0;
-        #200; // 200 ns resetfase
+        #200;
         sys_rst_n = 1;
 
-        #2000000; // We simuleren nu 2 milliseconden (2.000.000 ns)
+        #50000000; // 50 milliseconden = ~2400 audiosamples
         $finish;
     end
 
-    // --- AUDIO DATA LOGGER ---
-    // Sla de waarden op in de console zodra de reset hoog is (actief)
+   // --- AUDIO DATA LOGGER ---
+    // Schrijf ALLEEN een regel als de audio-klok tikt!
     always @(posedge sys_clk) begin
-        if (sys_rst_n) begin
-            // We printen de signed decimal waarde van het audiosignaal
+        if (sys_rst_n && uut.sample_clk_tick) begin
             $display("%d", uut.audio_signal);
         end
     end

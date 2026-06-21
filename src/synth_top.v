@@ -1,15 +1,34 @@
 `timescale 1ns / 1ps
 
 module synth_top (
-    input wire sys_clk,      // De vaste klok (50MHz in testbench, 27MHz op board)
-    input wire sys_rst_n,    // De ingebouwde resetknop (active low)
+    input wire sys_clk,      // Vaste 50MHz klok uit de testbench
+    input wire sys_rst_n,    // Active-low reset
     output reg led           // Status LED
 );
 
-    // Invert de active-low reset naar active-high voor onze modules
     wire rst = !sys_rst_n;
 
-    // --- TEST SIGNAAL GENERATOR (EXCITER) VOOR SIMULATIE ---
+    // --- KLOKVERDELER NAAR AUDIO SAMPLERATE (~48 kHz) ---
+    // 50.000.000 Hz / 1042 = ~48.013 Hz
+    reg [10:0] clk_divider;
+    reg sample_clk_tick;
+
+    always @(posedge sys_clk or posedge rst) begin
+        if (rst) begin
+            clk_divider <= 0;
+            sample_clk_tick <= 0;
+        end else begin
+            if (clk_divider >= 11'd1041) begin
+                clk_divider <= 0;
+                sample_clk_tick <= 1; // Eén kloktik hoog elke 48kHz
+            end else begin
+                clk_divider <= clk_divider + 1;
+                sample_clk_tick <= 0;
+            end
+        end
+    end
+
+   // --- TEST SIGNAAL GENERATOR (EXCITER) VOOR AUDIO-TEMPO ---
     reg [7:0] pulse_counter;
     reg signed [31:0] f_in;
 
@@ -17,39 +36,34 @@ module synth_top (
         if (rst) begin
             pulse_counter <= 0;
             f_in <= 32'h0;
-        end else begin
+        end else if (sample_clk_tick) begin 
+            // We tellen en updaten f_in UITSLUITEND op de audio-tick!
             if (pulse_counter < 8'hFF) begin
                 pulse_counter <= pulse_counter + 1;
             end
             
-            // Geef direct een harde tik op tellerstand 10
-            if (pulse_counter == 8'd10) begin
-                f_in <= 32'h00010000; // Waarde 1.0 in Q16.16
+            if (pulse_counter == 8'd5) begin
+                f_in <= 32'h00010000; // 1.0 in Q16.16 (blijft nu 1 hele audiocyclus staan!)
             end else begin
                 f_in <= 32'h0;
             end
         end
+        // Het destructieve 'else' blok buiten de tick is nu weg!
     end
 
-    // --- COËFFICIËNTEN (Vaste testwaarden in Q16.16) ---
-    // Oorspronkelijke tuning (voor referentie, niet gebruikt in deze code)
-    /*
-    wire signed [31:0] a1 = 32'h0001F6A0; // ~1.963
-    wire signed [31:0] a2 = 32'hFFFF0200; // ~-0.992
+    // --- COËFFICIËNTEN VOOR ECHTE 55 Hz BAS (op 48kHz sampling) ---
+    wire signed [31:0] a1 = 32'h0001FFF5; // Prachtig dicht bij 2.0 voor diepe bas
+    wire signed [31:0] a2 = 32'hFFFF0040; // Heel dicht bij -1.0 voor lange sustain
     wire signed [31:0] b0 = 32'h00000100; 
-    */
-
-    // --- COËFFICIËNTEN (Nieuwe tuning: Lagere toon + Lange Sustain in Q16.16) ---
-    wire signed [31:0] a1 = 32'h0001FF80; // ~1.998 (Hele lage, diepe basfrequentie)
-    wire signed [31:0] a2 = 32'hFFFF0020; // ~-0.9995 (Extreem weinig demping = lange sustain!)
-    wire signed [31:0] b0 = 32'h00000100;
 
     wire signed [31:0] audio_signal;
 
-    // --- INSTANTIATIE VAN JE RESONATOR ---
+   // --- INSTANTIATIE VAN RESONATOR ---
+    // We draaien op de stabiele sys_clk en sturen de tick mee als clock enable
     mass_spring_resonator u_resonator (
-        .clk(sys_clk),
+        .clk(sys_clk), 
         .rst(rst),
+        .ce(sample_clk_tick), // <--- We geven de audio-tick mee als enable!
         .f_in(f_in),
         .a1(a1),
         .a2(a2),
@@ -57,7 +71,6 @@ module synth_top (
         .x_out(audio_signal)
     );
 
-    // Koppel de LED aan het hoogste bit
     always @(posedge sys_clk) begin
         led <= audio_signal[31];
     end
