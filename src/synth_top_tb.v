@@ -31,7 +31,7 @@ module synth_top_tb();
         #200;
         sys_rst_n = 1;
 
-        #50000000; // 50 milliseconden = ~2400 audiosamples
+        #500000000; // 500 milliseconden = 0.5 seconde echte audio (~24.000 samples)
         $finish;
     end
 

@@ -51,10 +51,10 @@ module synth_top (
         // Het destructieve 'else' blok buiten de tick is nu weg!
     end
 
-    // --- COËFFICIËNTEN VOOR ECHTE 55 Hz BAS (op 48kHz sampling) ---
-    wire signed [31:0] a1 = 32'h0001FFF5; // Prachtig dicht bij 2.0 voor diepe bas
-    wire signed [31:0] a2 = 32'hFFFF0040; // Heel dicht bij -1.0 voor lange sustain
-    wire signed [31:0] b0 = 32'h00000100; 
+  // --- COËFFICIËNTEN (Nieuwe test-tuning voor stabiele fixed-point lagere toon) ---
+    wire signed [31:0] a1 = 32'h0001FE00; // Iets lager dan 2.0 (~1.992)
+    wire signed [31:0] a2 = 32'hFFFF0080; // Iets meer marge vanaf -1.0 (~-0.998)
+    wire signed [31:0] b0 = 32'h00001000; // Iets meer input gain zodat de tik harder binnenkomt
 
     wire signed [31:0] audio_signal;
 
