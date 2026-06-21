@@ -141,22 +141,17 @@ module synth_top (
             filter_mode <= 1'b0;          // Low-pass
         end else if (sample_clk_tick) begin
             if (trigger_pulse) begin
-                // Nieuwe noot: reset envelope
+                // Nieuwe noot: reset envelope, open filter
                 env_timer <= 0;
-                filter_g  <= G_OPEN;  // Meteen open!
-            end else if (env_timer < 16'd65535) begin
-                env_timer <= env_timer + 1;
-
-                // Envelope: lineaire decay van G_OPEN naar G_MEDIUM
-                // over ~24000 samples (0.5 sec), daarna blijft ie op G_MEDIUM
+                filter_g  <= G_OPEN;
+            end else begin
                 if (env_timer < 16'd24000) begin
-                    // Interpoleer: G_OPEN + (G_MEDIUM - G_OPEN) * (env/24000)
-                    // Vereenvoudigd: stapjes van (G_OPEN - G_MEDIUM) / 24000
-                    // (G_OPEN - G_MEDIUM) = 0x00024DCA
-                    // per sample: ~0x00024DCA / 24000 ≈ 0x19 per sample
-                    // We gebruiken grotere stappen elke 64 samples
-                    if (env_timer[5:0] == 6'd0) begin
-                        filter_g <= filter_g - 32'h000009A0;  // afgeronde stap
+                    env_timer <= env_timer + 1;
+
+                    // Elke 64 samples: stapje dichter naar G_MEDIUM
+                    // (G_OPEN - G_MEDIUM) / (24000/64) = 150986/375 ≈ 0x193
+                    if (env_timer[5:0] == 6'd0 && filter_g > (G_MEDIUM + 32'h193)) begin
+                        filter_g <= filter_g - 32'h00000193;
                     end
                 end
             end

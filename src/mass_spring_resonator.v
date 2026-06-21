@@ -31,7 +31,7 @@ module mass_spring_resonator (
     // VERANDERD: We tellen 0.5 op voor Q12.20 (een 1 op bitpositie 19)
     // En we shiften met [51:20] in plaats van [47:16]!
     wire signed [63:0] full_sum = prod_a1 + prod_a2 + prod_b0 + 64'h80000;
-    assign next_x = full_sum[51:20];
+    assign next_x = $signed(full_sum[51:20]);
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin

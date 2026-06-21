@@ -78,7 +78,7 @@ module ks_string #(
     wire signed [32:0] comp_sum    = $signed(s0) + $signed(s1);
     wire signed [31:0] comp_avg    = comp_sum >>> 1;
     wire signed [63:0] comp_damped = $signed(comp_avg) * $signed(damping);
-    wire signed [31:0] comp_new    = comp_damped[51:20];
+    wire signed [31:0] comp_new    = $signed(comp_damped[51:20]);
 
     // ========================================================================
     // Hoofd-FSM

@@ -45,15 +45,14 @@ module ms20_filter (
     // ========================================================================
     // Soft-clip (tanh-achtig) voor MS-20 karakter
     // ========================================================================
-    // Drempelwaarde: 0.5 in Q12.20 = 32'h00080000
-    // Boven de drempel: squash met factor 1/4 (>>2)
-    // Dit geeft het karakteristieke "scream" bij hoge resonance.
+    // Drempelwaarde: 0.5 in Q12.20 — let op: signed literals gebruiken!
+    wire signed [31:0] CLIP_THR = 32'sh00080000;   // +0.5
+    wire signed [31:0] CLIP_NTHR = -32'sh00080000; // -0.5
 
     wire signed [31:0] bp_clipped;
 
-    // Piecewise soft-clip: als |bp| > threshold, dan afvlakken
-    assign bp_clipped = (bp >  32'h00080000) ? (32'h00080000 + ((bp - 32'h00080000) >>> 2)) :
-                        (bp < -32'h00080000) ? (-32'h00080000 + ((bp + 32'h00080000) >>> 2)) :
+    assign bp_clipped = (bp > CLIP_THR)  ? (CLIP_THR + ((bp - CLIP_THR) >>> 2)) :
+                        (bp < CLIP_NTHR) ? (CLIP_NTHR + ((bp - CLIP_NTHR) >>> 2)) :
                         bp;
 
     // ========================================================================
@@ -64,9 +63,9 @@ module ms20_filter (
     wire signed [63:0] prod_k;    // k * bp_clipped
     assign prod_k = $signed(k) * $signed(bp_clipped);
 
-    // Scale k*bp_clipped terug naar Q12.20 (shift met 20 bits)
+    // Scale k*bp_clipped terug naar Q12.20 (arithmetic shift >>> 20)
     wire signed [31:0] feedback_scaled;
-    assign feedback_scaled = prod_k[51:20];
+    assign feedback_scaled = prod_k >>> 20;
 
     // hp (high-pass) intermediate
     wire signed [31:0] hp;
@@ -76,7 +75,7 @@ module ms20_filter (
     wire signed [63:0] prod_g_hp;
     assign prod_g_hp = $signed(g) * $signed(hp);
     wire signed [31:0] bp_delta;
-    assign bp_delta = prod_g_hp[51:20];
+    assign bp_delta = prod_g_hp >>> 20;
     wire signed [31:0] bp_next;
     assign bp_next = $signed(bp) + $signed(bp_delta);
 
@@ -84,7 +83,7 @@ module ms20_filter (
     wire signed [63:0] prod_g_bp;
     assign prod_g_bp = $signed(g) * $signed(bp_next);
     wire signed [31:0] lp_delta;
-    assign lp_delta = prod_g_bp[51:20];
+    assign lp_delta = prod_g_bp >>> 20;
     wire signed [31:0] lp_next;
     assign lp_next = $signed(lp) + $signed(lp_delta);
 
