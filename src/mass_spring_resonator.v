@@ -3,47 +3,41 @@
 module mass_spring_resonator (
     input wire clk,
     input wire rst,
-    input wire ce,                    // <--- NIEUW: Clock Enable poort
-    input wire signed [31:0] f_in,     // Externe excitatiekracht (Q16.16)
-    input wire signed [31:0] a1,       // Coëfficiënt 1 (Q16.16)
-    input wire signed [31:0] a2,       // Coëfficiënt 2 (Q16.16)
-    input wire signed [31:0] b0,       // Input gain (Q16.16)
-    output wire signed [31:0] x_out    // Huidige positie / audio out
+    input wire ce,
+    input wire signed [31:0] f_in,     // Excitatie (Nu ingelezen als Q12.20)
+    input wire signed [31:0] a1,       // Coëfficiënt 1 (Q12.20)
+    input wire signed [31:0] a2,       // Coëfficiënt 2 (Q12.20)
+    input wire signed [31:0] b0,       // Input gain (Q12.20)
+    output wire signed [31:0] x_out    // Output (Q12.20)
 );
 
-    // Interne registers voor de delay-lines (geschiedenis)
     reg signed [31:0] x;
     reg signed [31:0] x_prev;
 
-    // Output koppelen aan de huidige status
     assign x_out = x;
 
-    // Tijdelijke 64-bit registers voor de fixed-point vermenigvuldigingen
     reg signed [63:0] prod_a1;
     reg signed [63:0] prod_a2;
     reg signed [63:0] prod_b0;
     
     wire signed [31:0] next_x;
 
-    // Berekening van het mass-spring model: x[n] = a1*x[n-1] + a2*x[n-2] + b0*f_in[n]
     always @(*) begin
         prod_a1 = ($signed(a1) * $signed(x));
         prod_a2 = ($signed(a2) * $signed(x_prev));
         prod_b0 = ($signed(b0) * $signed(f_in));
     end
 
-    // Tel 0.5 op (bit 15 van de 64-bit bus) voor nette afronding in plaats van afkappen
-    wire signed [63:0] full_sum = prod_a1 + prod_a2 + prod_b0 + 64'h8000;
-    
-    // Verschuif nu pas naar Q16.16
-    assign next_x = full_sum[47:16];
+    // VERANDERD: We tellen 0.5 op voor Q12.20 (een 1 op bitpositie 19)
+    // En we shiften met [51:20] in plaats van [47:16]!
+    wire signed [63:0] full_sum = prod_a1 + prod_a2 + prod_b0 + 64'h80000;
+    assign next_x = full_sum[51:20];
 
-    // Synchroon blok met clock enable
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             x <= 32'h0;
             x_prev <= 32'h0;
-        end else if (ce) begin        // <--- ALTHANS HIER: Bereken alleen bij audio-tick!
+        end else if (ce) begin
             x_prev <= x;
             x <= next_x;
         end

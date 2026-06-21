@@ -11,23 +11,18 @@ if not os.path.exists("simulation_output.txt"):
 
 print("Bestand scannen (UTF-16 modus)...")
 
-# We openen het bestand met encoding='utf-16' om de 'ÿþ' (BOM) en null-bytes te fixen
 with open("simulation_output.txt", "r", encoding="utf-16", errors="ignore") as f:
     for line in f:
         cleaned = line.strip()
-        
         if not cleaned:
             continue
-            
-        # Filter rommel (zoals de licentietekst van Altair) eruit
         if cleaned.lstrip('-').isdigit():
             raw_data.append(int(cleaned))
 
 print(f"Aantal gevonden audiopunten: {len(raw_data)}")
 
 if not raw_data:
-    print("Fout: Nog steeds geen getallen gevonden. Probeer de UTF-8 variant hieronder.")
-    # Fallback voor het geval PowerShell toch UTF-8 met BOM heeft gebruikt
+    print("Fout: Nog steeds geen getallen gevonden. Probeer de UTF-8 variant...")
     with open("simulation_output.txt", "r", encoding="utf-8-sig", errors="ignore") as f:
         for line in f:
             cleaned = line.strip()
@@ -38,14 +33,22 @@ if not raw_data:
 if not raw_data:
     exit()
 
-# 2. Converteer van Q16.16 naar normale amplitudes en normaliseer
-max_val = max(abs(x) for x in raw_data)
+# 2. Converteer van Q12.20 naar normale amplitudes
+# Omdat we nu 20 bits achter de komma hebben, delen we door 2^20 = 1048576.0
+audio_floats = [float(x) / 1048576.0 for x in raw_data]
+
+# Verwijder eventuele DC-offset (het gemiddelde) zodat de golfvorm mooi rond de 0 centreert
+avg = sum(audio_floats) / len(audio_floats)
+audio_floats = [x - avg for x in audio_floats]
+
+# Normaliseer naar het volledige 16-bit bereik
+max_val = max(abs(x) for x in audio_floats)
 if max_val == 0:
     max_val = 1
 
 scaled_data = []
-for x in raw_data:
-    normalized = float(x) / max_val
+for x in audio_floats:
+    normalized = x / max_val
     int16_val = int(normalized * 32767)
     scaled_data.append(int16_val)
 
@@ -62,4 +65,4 @@ with wave.open("mass_spring_output.wav", "w") as wav_file:
     binary_data = struct.pack(f"{len(scaled_data)}h", *scaled_data)
     wav_file.writeframes(binary_data)
 
-print("\nGefeliciteerd! mass_spring_output.wav is succesvol aangemaakt!")
+print("\nGefeliciteerd! mass_spring_output.wav is succesvol aangemaakt voor Q12.20!")

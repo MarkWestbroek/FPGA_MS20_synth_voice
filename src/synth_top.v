@@ -28,7 +28,13 @@ module synth_top (
         end
     end
 
-   // --- TEST SIGNAAL GENERATOR (EXCITER) VOOR AUDIO-TEMPO ---
+   // --- COËFFICIËNTEN IN Q12.20 FORMAAT ---
+    // Perfect stabiel voor een diepe transiënt rond de 90 Hz die direct uitdempt:
+    wire signed [31:0] a1 = 32'h001FF900; // ~1.9982 (Bepaalt de lage toonhoogte)
+    wire signed [31:0] a2 = 32'hFFF00400; // ~-0.9990 (Zorgt voor een lange, stabiele decay ZONDER overflow!)
+    wire signed [31:0] b0 = 32'h00040000; // Krachtige input-gain voor de begin-plonk
+    
+    // --- TEST SIGNAAL GENERATOR (Aangepast naar Q12.20) ---
     reg [7:0] pulse_counter;
     reg signed [31:0] f_in;
 
@@ -37,24 +43,17 @@ module synth_top (
             pulse_counter <= 0;
             f_in <= 32'h0;
         end else if (sample_clk_tick) begin 
-            // We tellen en updaten f_in UITSLUITEND op de audio-tick!
             if (pulse_counter < 8'hFF) begin
                 pulse_counter <= pulse_counter + 1;
             end
             
             if (pulse_counter == 8'd5) begin
-                f_in <= 32'h00010000; // 1.0 in Q16.16 (blijft nu 1 hele audiocyclus staan!)
+                f_in <= 32'h00100000; // 1.0 in Q12.20
             end else begin
                 f_in <= 32'h0;
             end
         end
-        // Het destructieve 'else' blok buiten de tick is nu weg!
     end
-
-    // --- COËFFICIËNTEN (Nieuwe test-tuning voor stabiele fixed-point lagere toon) ---
-    wire signed [31:0] a1 = 32'h0001FE00; // ~1.992
-    wire signed [31:0] a2 = 32'hFFFF0100; // ~-0.996 (Stabiele sustain dankzij afronding!)
-    wire signed [31:0] b0 = 32'h00004000; // Hardere tik (0.25) om de bitdiepte goed te vullen
 
     wire signed [31:0] audio_signal;
 

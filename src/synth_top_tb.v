@@ -25,7 +25,7 @@ module synth_top_tb();
         $dumpvars(0, synth_top_tb);
     end
 
-  // Test scenario in src/synth_top_tb.v
+ // Test scenario in src/synth_top_tb.v
     initial begin
         sys_rst_n = 0;
         #200;
