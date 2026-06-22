@@ -17,5 +17,6 @@
         <File path="src/spi_frame_tb.v" type="file.verilog" enable="0"/>
         <File path="src/synth_top_spi_tb.v" type="file.verilog" enable="0"/>
         <File path="src/synth_top.cst" type="file.cst" enable="1"/>
+        <File path="src/synth_top.sdc" type="file.sdc" enable="1"/>
     </FileList>
 </Project>

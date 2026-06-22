@@ -27,6 +27,8 @@ Vul [`src/synth_top.cst`](../src/synth_top.cst) met de echte pinnen — via de
 - Project: `MS20_Synth_Voice.gprj`, top = `synth_top`.
 - Zorg dat de testbenches op `enable="0"` staan (al zo) en de `.cst`/`.hex`
   (`tanh_table.hex`, `note_period.hex`) gevonden worden vanuit de projectroot.
+- Timing: `src/synth_top.sdc` definieert `sys_clk` op 27 MHz (`create_clock`,
+  periode 37.037 ns). Lost de P&R-warning *"'sys_clk' ... not created" (TA1132)* op.
 - **Synthesize → Place & Route** → genereert `*.fs` (de bitstream) in `impl/pnr/`.
 
 ## 3. Flashen
