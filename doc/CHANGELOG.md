@@ -2,6 +2,16 @@
 
 Voortgangslog. Nieuwste bovenaan. Zie [ROADMAP.md](ROADMAP.md) voor wat nog komt.
 
+## 2026-06-22 — Fase 2: synth_top wiring (SPI → audio end-to-end)
+- `synth_top.v`: SPI-pins + `spi_slave`/`spi_frame` ingebouwd; CV→param-mapping
+  (pitch→KS-period, cutoff→g, reson→k, drive); `demo_mode`-mux houdt de interne
+  demo-sequencer als optie; trigger naar het audio-tick (`ce`) domein getild.
+- `note_to_period.v` + `note_period.hex` (gen_tables.py): MIDI-noot → KS-period.
+- `synth_top_spi_tb.v`: end-to-end test — SPI-frames sturen cutoff/reson/drive/pitch
+  + GateSet, audio komt eruit (`ms20_filter_spi.wav`). Demo-pad regressie OK.
+- Bugfix: SPI-trigger moet (net als de demo) de héle tick-gap hoog blijven zodat
+  `ks_string` 'm op de volgende `ce` consumeert.
+
 ## 2026-06-22 — Fase 2: SPI afgestemd op MusicBrain
 - MusicBrain-project gelezen (ADR 0010/0011, frame-protocol, twee-Teensy-split).
   Besluit: FPGA = SPI-slave "instrument" op de Teensy-4.1-brain bus; audio uit via

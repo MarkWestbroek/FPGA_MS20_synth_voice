@@ -14,6 +14,14 @@
 module synth_top (
     input  wire         sys_clk,      // 50 MHz systeemklok
     input  wire         sys_rst_n,    // Active-low reset
+
+    // SPI-slave (MusicBrain frame-protocol); de brain (Teensy 4.1) is master
+    input  wire         spi_sclk,
+    input  wire         spi_mosi,
+    input  wire         spi_cs_n,
+
+    input  wire         demo_mode,    // 1 = interne demo-sequencer, 0 = SPI-CV's
+
     output wire         led,          // Status LED
     output wire signed [31:0] audio_out  // Q12.20 audio-uitgang
 );
@@ -88,6 +96,78 @@ module synth_top (
     end
 
     // ========================================================================
+    // SPI-CONTROL: brain → CV/gate → synth-parameters
+    //
+    // De brain stuurt per-stem pitch/cutoff/reson/drive als CV (i16) en gate.
+    // pitch-CV → MIDI-noot → KS-period (via note_to_period LUT). De CV→Q12.20
+    // filter-mappings hieronder zijn voorlopig (vaste shifts, zie ROADMAP).
+    // ========================================================================
+    wire [7:0] spi_rx_byte;
+    wire       spi_rx_valid, spi_cs_active;
+    wire signed [15:0] pitch_cv, cutoff_cv, reson_cv, drive_cv;
+    wire       spi_gate, spi_trigger;
+
+    spi_slave u_spi_slave (
+        .clk(sys_clk), .rst(rst),
+        .sclk(spi_sclk), .mosi(spi_mosi), .cs_n(spi_cs_n),
+        .rx_byte(spi_rx_byte), .rx_valid(spi_rx_valid), .cs_active(spi_cs_active)
+    );
+
+    spi_frame u_spi_frame (
+        .clk(sys_clk), .rst(rst),
+        .rx_byte(spi_rx_byte), .rx_valid(spi_rx_valid), .cs_active(spi_cs_active),
+        .pitch_cv(pitch_cv), .cutoff_cv(cutoff_cv), .reson_cv(reson_cv),
+        .drive_cv(drive_cv), .gate(spi_gate), .trigger(spi_trigger),
+        .pong_req(), .frame_ok()
+    );
+
+    // pitch-CV (i16) → MIDI-noot rond 60 (±64), geclampt 0..127
+    wire signed [15:0] note_raw = 16'sd60 + (pitch_cv >>> 9);
+    wire [6:0] spi_note = (note_raw < 0)   ? 7'd0   :
+                          (note_raw > 127) ? 7'd127 : note_raw[6:0];
+    wire [10:0] spi_period;
+    note_to_period u_n2p (.clk(sys_clk), .note(spi_note), .period(spi_period));
+
+    // CV → Q12.20 filter-parameters (sign-extend naar 32-bit eerst)
+    wire signed [31:0] cutoff32 = {{16{cutoff_cv[15]}}, cutoff_cv};
+    wire signed [31:0] reson32  = {{16{reson_cv[15]}},  reson_cv};
+    wire signed [31:0] drive32  = {{16{drive_cv[15]}},  drive_cv};
+
+    // cutoff: 0..+1 → g 0..~0.25
+    wire signed [31:0] g_spi = (cutoff32 <= 0) ? 32'sd0 : (cutoff32 <<< 3);
+    // resonance: hoger CV = meer resonantie = LAGERE demping k (floor 0.125)
+    wire signed [31:0] k_sub     = (reson32 < 0) ? 32'sd0 : (reson32 <<< 5);
+    wire signed [31:0] k_spi_raw = 32'sh00100000 - k_sub;
+    wire signed [31:0] k_spi     = (k_spi_raw < 32'sh00020000) ? 32'sh00020000 : k_spi_raw;
+    // drive: 1.0 + positief CV
+    wire signed [31:0] drive_add = (drive32 < 0) ? 32'sd0 : (drive32 <<< 6);
+    wire signed [31:0] drive_spi = 32'sh00100000 + drive_add;
+
+    // trigger naar het audio-tick (ce) domein tillen.
+    // Net als de demo's trigger_pulse: alleen op ticks bijwerken, zodat de puls
+    // de héle tick-gap hoog blijft en ks_string 'm op de volgende tick consumeert
+    // (ks checkt `ce && trigger`). spi_trigger kan op elk moment binnenkomen en
+    // wordt in trig_pending vastgehouden tot de eerstvolgende tick.
+    reg trig_pending, spi_trig_pulse;
+    always @(posedge sys_clk or posedge rst) begin
+        if (rst) begin
+            trig_pending   <= 1'b0;
+            spi_trig_pulse <= 1'b0;
+        end else if (sample_clk_tick) begin
+            spi_trig_pulse <= trig_pending | spi_trigger;  // ook bij gelijktijdigheid
+            trig_pending   <= 1'b0;
+        end else if (spi_trigger) begin
+            trig_pending <= 1'b1;
+        end
+    end
+
+    // ========================================================================
+    // MUX: demo-sequencer vs SPI-CV's
+    // ========================================================================
+    wire [10:0]        eff_period  = demo_mode ? current_period : spi_period;
+    wire               eff_trigger = demo_mode ? trigger_pulse  : spi_trig_pulse;
+
+    // ========================================================================
     // KARPLUS-STRONG STRING MODEL
     //
     // Damping: 0.9995 in Q12.20 ≈ 0x000FFF5C
@@ -102,8 +182,8 @@ module synth_top (
         .clk      (sys_clk),
         .rst      (rst),
         .ce       (sample_clk_tick),
-        .trigger  (trigger_pulse),
-        .period   (current_period),
+        .trigger  (eff_trigger),
+        .period   (eff_period),
         .damping  (ks_damping),
         .audio_out(string_out)
     );
@@ -166,8 +246,12 @@ module synth_top (
     end
 
     // ========================================================================
-    // MS-20 STATE-VARIABLE FILTER
+    // MS-20 STATE-VARIABLE FILTER  (demo-envelope vs SPI-CV's via mux)
     // ========================================================================
+    wire signed [31:0] eff_g     = demo_mode ? filter_g     : g_spi;
+    wire signed [31:0] eff_k     = demo_mode ? filter_k     : k_spi;
+    wire signed [31:0] eff_drive = demo_mode ? filter_drive : drive_spi;
+
     wire signed [31:0] filter_out;
 
     ms20_filter #(
@@ -178,9 +262,9 @@ module synth_top (
         .ce       (sample_clk_tick),
         .audio_in (string_out),
         .audio_out(filter_out),
-        .g        (filter_g),
-        .k        (filter_k),
-        .drive    (filter_drive),
+        .g        (eff_g),
+        .k        (eff_k),
+        .drive    (eff_drive),
         .mode     (filter_mode)
     );
 

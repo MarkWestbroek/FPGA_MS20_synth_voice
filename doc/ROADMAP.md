@@ -42,13 +42,13 @@ Zie `D:\Git\Muziek\MusicBrain` (ADR 0010/0011, `doc/protocols/spi-frame.md`,
       pitch/cutoff/reson/drive; GateSet → gate + trigger-puls.
 - [x] Zelf-controlerende testbench `spi_frame_tb.v` — **10/10 PASS** (incl.
       CRC-rejectie; DUT+TB berekenen CRC onafhankelijk → kruisgevalideerd).
+- [x] Wiring in `synth_top`: SPI-pins + `spi_slave`/`spi_frame`, CV→param-mapping,
+      `demo_mode`-mux (interne sequencer behouden), trigger naar `ce`-domein getild.
+- [x] Pitch-CV → KS-period via `note_to_period` LUT (`gen_tables.py` → `note_period.hex`).
+- [x] End-to-end testbench `synth_top_spi_tb.v`: SPI-frames → audio (geverifieerd,
+      `ms20_filter_spi.wav`); demo-pad regressie OK.
 - [ ] MISO: Pong-antwoord op Ping (+ later CvInReport indien nodig).
-- [ ] Wiring in `synth_top`: demo-sequencer vervangen door SPI-parameters
-      (sequencer behouden als optionele demo-mode). **Integratie-notitie:**
-      `trigger` is een sys_clk-puls → in `synth_top` vasthouden tot de volgende
-      `sample_clk_tick` (ce) voordat hij naar `ks_string` gaat.
-- [ ] Pitch-CV → KS-period omzetting (V/oct-achtige mapping, i16 → frequentie).
-- [ ] Muzikale schaling van de param-mappings verfijnen.
+- [ ] Muzikale schaling van de CV→param-mappings + pitch-CV/V-oct afstemmen met de brain.
 
 ### ⬜ Fase 3 — Hardware bring-up: bitstream + audio uit
 - [ ] **Pin-constraints** `.cst`: sys_clk, reset, LED, SPI (SCLK/MOSI/MISO/CS),

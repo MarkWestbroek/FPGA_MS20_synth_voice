@@ -37,7 +37,12 @@ en is er nog geen I2S/Teensy — de audio komt via de testbench naar WAV.
 
 ```mermaid
 flowchart TD
-  TB["synth_top_tb\n(testbench)"] --> TOP["synth_top\nklokdeler · demo-sequencer · cutoff-envelope"]
+  TB["synth_top_tb\n(demo)"] --> TOP
+  TBS["synth_top_spi_tb\n(SPI-gedreven)"] --> TOP
+  TOP["synth_top\nklokdeler · demo-sequencer · cutoff-envelope · demo_mode-mux"]
+  TOP --> SLAVE["spi_slave\nmode-0 byte-RX + CDC"]
+  SLAVE --> FRAME["spi_frame\nMusicBrain frame + CRC16\n→ CV/gate"]
+  TOP --> N2P["note_to_period\nBRAM-ROM (note_period.hex)"]
   TOP --> KS["ks_string\nKarplus-Strong + LFSR-ruis\n(BRAM delay-line)"]
   TOP --> FILT["ms20_filter\nChamberlin SVF (FSM)"]
   FILT --> TANH["tanh_lut\nBRAM-ROM (tanh_table.hex)"]
@@ -47,11 +52,21 @@ flowchart TD
 
 ```mermaid
 flowchart LR
+  SPI["SPI in\n(brain)"] --> FR["spi_frame\nCV/gate"]
+  FR -->|"pitch-CV"| N2P["note_to_period\n→ period"]
+  FR -->|"gate"| TRIG
+  N2P --> KS
   TRIG["trigger\n(noot-aanslag)"] --> KS
   KS["ks_string\n→ string_out"] --> FILT
-  ENV["cutoff-envelope\n→ g"] --> FILT
+  FR -->|"cutoff/reson/drive-CV"| MAP["CV→Q12.20\n(g/k/drive)"]
+  ENV["demo: cutoff-envelope"] --> MUX
+  MAP --> MUX["demo_mode-mux"]
+  MUX --> FILT
   FILT["ms20_filter\n→ filter_out"] --> OUT["audio_out (Q12.20)"]
 ```
+
+> In `demo_mode=1` levert de interne sequencer/envelope `period`/`trigger`/`g`;
+> in `demo_mode=0` komen die uit de SPI-CV's. De mux kiest per parameter.
 
 ## Filter-FSM (`ms20_filter`)
 

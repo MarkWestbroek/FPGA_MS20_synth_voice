@@ -18,6 +18,10 @@ module synth_top_tb();
     synth_top uut (
         .sys_clk   (sys_clk),
         .sys_rst_n (sys_rst_n),
+        .spi_sclk  (1'b0),       // SPI inactief in demo-mode
+        .spi_mosi  (1'b0),
+        .spi_cs_n  (1'b1),
+        .demo_mode (1'b1),       // interne sequencer
         .led       (led),
         .audio_out (audio_out)
     );

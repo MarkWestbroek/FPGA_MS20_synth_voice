@@ -64,9 +64,31 @@ def print_g_constants(fs):
         print(f"    fc={fc:5d} Hz  ->  g = {g:.6f}  ->  Q12.20 = 0x{q1220(g):08X}")
 
 
+OUT_NOTE = "note_period.hex"
+
+
+def gen_note_period(fs=48000, max_delay=2047, min_period=8):
+    """MIDI-note (0..127) -> Karplus-Strong delay-lengte (period = fs/freq).
+
+    Geclampt op [min_period, max_delay] (de delay-lijn is 2048 diep, en heel
+    hoge noten hebben een te korte periode). 11-bit waarden, 3 hex-digits.
+    """
+    lines = []
+    for n in range(128):
+        freq = 440.0 * (2.0 ** ((n - 69) / 12.0))
+        period = int(round(fs / freq))
+        period = max(min_period, min(max_delay, period))
+        lines.append(f"{period:03X}")
+    with open(OUT_NOTE, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"  geschreven: {OUT_NOTE}  (128 noten -> period @ {fs} Hz, "
+          f"clamp [{min_period},{max_delay}])")
+
+
 if __name__ == "__main__":
     print("Tabellen genereren...")
     gen_tanh()
+    gen_note_period()
     # Filter draait intern op 2x oversampling => 96 kHz.
     print_g_constants(96000)
     print("\nKlaar!")
