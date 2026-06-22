@@ -2,6 +2,15 @@
 
 Voortgangslog. Nieuwste bovenaan. Zie [ROADMAP.md](ROADMAP.md) voor wat nog komt.
 
+## 2026-06-22 — Synthese-warnings + 27 MHz-render geverifieerd
+- `ms20_filter.v`: lut_addr-randbug gefixt (`>= X_MAX`, anders wrapt de grenswaarde
+  1024 naar adres 0). De overige width-warnings zijn normale fixed-point/teller-
+  truncaties (onschuldig).
+- `note_to_period.v`: ROM 12-bit zodat de 3-nibble hex-entries passen (silences EX2526).
+- `make_wave.py` schrijft nu naar `wav/`.
+- Geverifieerd: SPI → audio op de echte **27 MHz** klok (tijdelijke tb), render in
+  `wav/ms20_filter_spi27.wav`.
+
 ## 2026-06-22 — Flash-klaar: 27 MHz default + LED-heartbeat
 - Board-specs bevestigd uit datasheet (GW2A-LV18PG256C8/I7): 20736 LUT4, 48 DSP,
   **828K BSRAM (46 blokken)**, 4 PLLs, 32Mbit flash. Klok = **27 MHz** (50 was fout).

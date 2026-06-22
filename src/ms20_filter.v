@@ -72,8 +72,8 @@ module ms20_filter #(
     localparam signed [31:0] X_MAX =  32'sd4194304;   // +4.0 in Q12.20
     localparam signed [31:0] X_MIN = -32'sd4194304;   // -4.0 in Q12.20
 
-    wire [9:0] lut_addr = (bp_driven > X_MAX) ? 10'd1023 :
-                          (bp_driven < X_MIN) ? 10'd0    :
+    wire [9:0] lut_addr = (bp_driven >= X_MAX) ? 10'd1023 :   // >= : grens niet naar 0 laten wrappen
+                          (bp_driven <  X_MIN) ? 10'd0    :
                           (bp_driven + X_MAX) >>> 13;
 
     wire signed [31:0] lut_tanh;   // tanh(drive*bp), 1 cycle latency

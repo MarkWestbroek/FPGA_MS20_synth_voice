@@ -57,17 +57,20 @@ if not col1_data:
     print("Fout: Geen audiodata!"); exit()
 
 Q = 1048576.0
+WAV_DIR = "wav"
+os.makedirs(WAV_DIR, exist_ok=True)
 
 def to_wav(data, name, desc):
     if not data: return
+    path = os.path.join(WAV_DIR, name)
     f = [float(x)/Q for x in data]
     avg = sum(f)/len(f); c = [x-avg for x in f]
     peak = max(abs(x) for x in c) or 1.0
     s16 = [int((x/peak)*32767) for x in c]
-    with wave.open(name,"w") as w:
+    with wave.open(path,"w") as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
         w.writeframes(struct.pack(f"{len(s16)}h",*s16))
-    print(f"  ✓ {name} — {len(s16)} samples ({len(s16)/48000:.1f}s) — {desc}")
+    print(f"  ✓ {path} — {len(s16)} samples ({len(s16)/48000:.1f}s) — {desc}")
 
 to_wav(col1_data, "ks_string_output.wav", "Karplus-Strong droge klank")
 to_wav(col2_data, "ms20_filter_output.wav", "MS-20 gefilterd")

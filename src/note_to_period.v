@@ -14,14 +14,16 @@ module note_to_period (
     output reg  [10:0] period       // KS delay-lengte
 );
 
-    (* ram_style = "block" *) reg [10:0] rom [0:127];
+    // 12-bit breed zodat de 3-nibble hex-entries exact passen (waarden ≤ 0x7FF);
+    // we nemen de onderste 11 bits als period.
+    (* ram_style = "block" *) reg [11:0] rom [0:127];
 
     initial begin
         $readmemh("note_period.hex", rom);
     end
 
     always @(posedge clk) begin
-        period <= rom[note];
+        period <= rom[note][10:0];
     end
 
 endmodule
