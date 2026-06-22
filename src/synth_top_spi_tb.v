@@ -17,7 +17,7 @@ module synth_top_spi_tb();
     wire led;
     wire signed [31:0] audio_out;
 
-    synth_top #(.SYS_CLK_HZ(50_000_000)) uut (   // tb klokt op 50 MHz
+    synth_top #(.SYS_CLK_HZ(50_000_000), .DEMO_ONLY(0)) uut (   // tb klokt op 50 MHz
         .sys_clk(sys_clk), .sys_rst_n(sys_rst_n),
         .spi_sclk(spi_sclk), .spi_mosi(spi_mosi), .spi_miso(), .spi_cs_n(spi_cs_n),
         .demo_mode(1'b0),               // SPI-gedreven

@@ -17,7 +17,11 @@ module synth_top #(
     // 50 MHz en overschrijven dit naar 50_000_000. Optioneel kan een PLL 27→50 MHz
     // maken voor exact gelijke rates als de sim (zie doc/FLASHING.md).
     parameter integer SYS_CLK_HZ = 27_000_000,
-    parameter integer SAMPLE_HZ  = 48_000
+    parameter integer SAMPLE_HZ  = 48_000,
+    // DEMO_ONLY=1: forceer de interne demo-sequencer (negeer de demo_mode-pin).
+    // Handig zolang er nog geen brain/SPI is aangesloten — gegarandeerd geluid.
+    // Zet op 0 zodra je via SPI wilt spelen (de SPI-testbench doet dat al).
+    parameter integer DEMO_ONLY  = 1
 ) (
     input  wire         sys_clk,      // systeemklok (zie SYS_CLK_HZ)
     input  wire         sys_rst_n,    // Active-low reset
@@ -186,8 +190,10 @@ module synth_top #(
     // ========================================================================
     // MUX: demo-sequencer vs SPI-CV's
     // ========================================================================
-    wire [10:0]        eff_period  = demo_mode ? current_period : spi_period;
-    wire               eff_trigger = demo_mode ? trigger_pulse  : spi_trig_pulse;
+    // demo_eff: effectieve demo-keuze. DEMO_ONLY forceert demo (negeert de pin).
+    wire               demo_eff    = (DEMO_ONLY != 0) ? 1'b1 : demo_mode;
+    wire [10:0]        eff_period  = demo_eff ? current_period : spi_period;
+    wire               eff_trigger = demo_eff ? trigger_pulse  : spi_trig_pulse;
 
     // ========================================================================
     // KARPLUS-STRONG STRING MODEL
@@ -270,9 +276,9 @@ module synth_top #(
     // ========================================================================
     // MS-20 STATE-VARIABLE FILTER  (demo-envelope vs SPI-CV's via mux)
     // ========================================================================
-    wire signed [31:0] eff_g     = demo_mode ? filter_g     : g_spi;
-    wire signed [31:0] eff_k     = demo_mode ? filter_k     : k_spi;
-    wire signed [31:0] eff_drive = demo_mode ? filter_drive : drive_spi;
+    wire signed [31:0] eff_g     = demo_eff ? filter_g     : g_spi;
+    wire signed [31:0] eff_k     = demo_eff ? filter_k     : k_spi;
+    wire signed [31:0] eff_drive = demo_eff ? filter_drive : drive_spi;
 
     wire signed [31:0] filter_out;
 
