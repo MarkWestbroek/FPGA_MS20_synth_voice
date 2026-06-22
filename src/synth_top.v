@@ -36,7 +36,6 @@ module synth_top #(
     input  wire         key_mute_n,   // drukknop (active-low): toggle audio aan/uit
 
     output wire         led,          // Status LED
-    output wire signed [31:0] audio_out, // Q12.20 audio-uitgang (sim/debug)
 
     // Onboard PT8211 stereo-DAC (Tang Primer 20K Dock → 3.5mm jack)
     output wire         hp_bck,
@@ -300,7 +299,8 @@ module synth_top #(
     // ========================================================================
     // UITGANGEN
     // ========================================================================
-    assign audio_out = filter_out;
+    // (audio_out-poort verwijderd: was alleen voor sim; testbenches lezen
+    //  uut.filter_out hierarchisch. Scheelt 32 togglende pinnen → minder ruis.)
 
     // ---- Onboard PT8211 DAC: 32-bit Q12.20 → 16-bit signed (gain ~2 + saturatie)
     // >>>4: een signaal van 0.5 (Q12.20) bereikt full-scale; filter-pieken ~0.2-0.25

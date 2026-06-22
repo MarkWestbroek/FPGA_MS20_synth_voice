@@ -12,7 +12,6 @@ module synth_top_tb();
     reg  sys_clk;
     reg  sys_rst_n;
     wire led;
-    wire signed [31:0] audio_out;
 
     // Instantieer de Unit Under Test
     synth_top #(.SYS_CLK_HZ(50_000_000)) uut (   // tb klokt op 50 MHz
@@ -25,7 +24,6 @@ module synth_top_tb();
         .demo_mode (1'b1),       // interne sequencer
         .key_mute_n(1'b1),       // niet ingedrukt
         .led       (led),
-        .audio_out (audio_out),
         .hp_bck    (), .hp_ws (), .hp_din (), .pa_en ()
     );
 
@@ -71,7 +69,7 @@ module synth_top_tb();
     always @(posedge sys_clk) begin
         if (sys_rst_n && uut.sample_clk_tick) begin
             // Kolom 1: KS string (droog), Kolom 2: MS-20 filter output
-            $display("%d,%d", uut.string_out, audio_out);
+            $display("%d,%d", uut.string_out, uut.filter_out);
         end
     end
 
