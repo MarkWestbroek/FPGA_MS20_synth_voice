@@ -23,6 +23,7 @@ module synth_top_tb();
         .spi_miso  (),
         .spi_cs_n  (1'b1),
         .demo_mode (1'b1),       // interne sequencer
+        .key_mute_n(1'b1),       // niet ingedrukt
         .led       (led),
         .audio_out (audio_out),
         .hp_bck    (), .hp_ws (), .hp_din (), .pa_en ()
