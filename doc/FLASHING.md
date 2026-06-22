@@ -3,16 +3,19 @@
 Stappenplan om het synth-ontwerp van simulatie naar het echte bord te brengen.
 Doe het **incrementeel** — eerst een levensteken, dan pas audio.
 
-## 0. Belangrijk vooraf: de klok is 27 MHz
-Het ontwerp is geschreven/gesimuleerd op **50 MHz**, maar het onboard kristal van
-de Tang Primer 20K is **27 MHz**. Twee opties:
+## 0. Klok: 27 MHz (al geregeld)
+Het onboard kristal van de Tang Primer 20K is **27 MHz** (niet 50 — dat was een
+foutje uit een eerdere chat). `synth_top` heeft nu **default `SYS_CLK_HZ = 27_000_000`**,
+dus native draaien werkt direct: de klokdeler rekent `27e6/48000` → sample-rate
+~48.04 kHz (0.09% af, onhoorbaar). **Geen PLL nodig** voor first-light.
 
-- **Aanbevolen — PLL naar 50 MHz** (sim == hardware): maak met de Gowin IP-wizard
-  een `rPLL` die 27 MHz → 50 MHz omzet, en voed de PLL-uitgang als `sys_clk`.
-  Dan klopt alles wat we gesimuleerd hebben exact.
-- **Simpel — retarget de deler**: instantieer `synth_top` met
-  `SYS_CLK_HZ = 27_000_000` (de klokdeler rekent dan `27e6/48000`). De
-  sample-rate wordt dan ~48.04 kHz (0.1% af, onhoorbaar). Geen PLL nodig.
+> De testbenches klokken op 50 MHz en overschrijven de parameter
+> (`synth_top #(.SYS_CLK_HZ(50_000_000))`); de sim blijft dus exact 48 kHz.
+
+**Optioneel — exact 50 MHz via PLL:** wil je hardware identiek aan de sim, maak dan
+met de Gowin IP-wizard (Clock → rPLL) een `27 MHz → 50 MHz` PLL (params komen op
+≈ IDIV=27, FBDIV=50, ODIV zodat VCO 400–1200 MHz), voed de PLL-uitgang als `sys_clk`
+en laat `SYS_CLK_HZ` op 50 MHz. Niet nodig om te beginnen.
 
 ## 1. Pin-constraints (`.cst`)
 Vul [`src/synth_top.cst`](../src/synth_top.cst) met de echte pinnen — via de
@@ -40,8 +43,8 @@ Twee tools werken voor de Tang Primer 20K (GW2A-18C):
   ```
 
 ## 4. Bring-up volgorde (van simpel naar audio)
-1. **LED-levensteken**: `led` knippert mee met `filter_out[31]`/activiteit. Bevestig
-   dat het bord draait en de klok loopt.
+1. **LED-heartbeat**: `led` knippert nu met ~0.8 Hz (een teller op `sys_clk`).
+   Knippert de LED rustig, dan draaien klok + bitstream — het allereerste doel.
 2. **demo_mode = 1**: de interne sequencer speelt — meet `audio_out`/I2S of zie de
    LED bewegen. Bewijst dat KS + filter op hardware draaien.
 3. **SPI-levensteken**: stuur vanaf de brain een `Ping`; controleer dat de FPGA

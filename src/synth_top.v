@@ -12,10 +12,11 @@
 `timescale 1ns / 1ps
 
 module synth_top #(
-    // Systeemklok-frequentie. Sim/default = 50 MHz. Op de Tang Primer 20K is het
-    // onboard kristal 27 MHz: gebruik óf een PLL naar 50 MHz (sim == hardware),
-    // óf zet SYS_CLK_HZ = 27_000_000 (zie doc/FLASHING.md).
-    parameter integer SYS_CLK_HZ = 50_000_000,
+    // Systeemklok-frequentie. Default = 27 MHz = het onboard kristal van de Tang
+    // Primer 20K (native draaien, geen PLL nodig). De testbenches klokken op
+    // 50 MHz en overschrijven dit naar 50_000_000. Optioneel kan een PLL 27→50 MHz
+    // maken voor exact gelijke rates als de sim (zie doc/FLASHING.md).
+    parameter integer SYS_CLK_HZ = 27_000_000,
     parameter integer SAMPLE_HZ  = 48_000
 ) (
     input  wire         sys_clk,      // systeemklok (zie SYS_CLK_HZ)
@@ -287,6 +288,14 @@ module synth_top #(
     // UITGANGEN
     // ========================================================================
     assign audio_out = filter_out;
-    assign led = filter_out[31];
+
+    // LED-heartbeat (~0.8 Hz @27MHz): zichtbaar levensteken bij de eerste flash —
+    // bewijst dat klok + bitstream draaien, los van audio.
+    reg [24:0] hb_cnt;
+    always @(posedge sys_clk or posedge rst) begin
+        if (rst) hb_cnt <= 25'd0;
+        else     hb_cnt <= hb_cnt + 25'd1;
+    end
+    assign led = hb_cnt[24];
 
 endmodule

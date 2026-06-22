@@ -15,7 +15,7 @@ module synth_top_tb();
     wire signed [31:0] audio_out;
 
     // Instantieer de Unit Under Test
-    synth_top uut (
+    synth_top #(.SYS_CLK_HZ(50_000_000)) uut (   // tb klokt op 50 MHz
         .sys_clk   (sys_clk),
         .sys_rst_n (sys_rst_n),
         .spi_sclk  (1'b0),       // SPI inactief in demo-mode

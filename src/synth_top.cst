@@ -9,13 +9,14 @@
 // Syntax:  IO_LOC "signaalnaam" <pinnummer>;
 //          IO_PORT "signaalnaam" IO_TYPE=LVCMOS33 [PULL_MODE=UP] [DRIVE=8];
 //
-// LET OP de klok: het onboard kristal is 27 MHz. Zie doc/FLASHING.md —
-// gebruik een PLL naar 50 MHz (sim == hardware) óf instantieer synth_top met
-// parameter SYS_CLK_HZ = 27_000_000.
+// Klok: het onboard kristal is 27 MHz; synth_top draait daar default op
+// (SYS_CLK_HZ = 27_000_000). Verbind "sys_clk" met de 27 MHz-pin (zie de Sipeed
+// Tang Primer 20K pinout / voorbeeld-.cst). Zie doc/FLASHING.md voor de optionele
+// PLL-route naar 50 MHz.
 // ============================================================================
 
 // ---- Klok & reset --------------------------------------------------------
-// IO_LOC  "sys_clk"   <PIN>;     // 27 MHz onboard kristal (of PLL-uitgang)
+// IO_LOC  "sys_clk"   <PIN>;     // 27 MHz onboard kristal-pin
 // IO_PORT "sys_clk"   IO_TYPE=LVCMOS33;
 // IO_LOC  "sys_rst_n" <PIN>;     // bijv. een drukknop op de dock
 // IO_PORT "sys_rst_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;

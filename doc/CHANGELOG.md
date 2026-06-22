@@ -2,6 +2,14 @@
 
 Voortgangslog. Nieuwste bovenaan. Zie [ROADMAP.md](ROADMAP.md) voor wat nog komt.
 
+## 2026-06-22 — Flash-klaar: 27 MHz default + LED-heartbeat
+- Board-specs bevestigd uit datasheet (GW2A-LV18PG256C8/I7): 20736 LUT4, 48 DSP,
+  **828K BSRAM (46 blokken)**, 4 PLLs, 32Mbit flash. Klok = **27 MHz** (50 was fout).
+- `synth_top` default `SYS_CLK_HZ = 27_000_000` (native, geen PLL); testbenches
+  overschrijven naar 50 MHz. Sim ongewijzigd (geverifieerd: SPI→audio OK).
+- LED-heartbeat (~0.8 Hz) als zichtbaar first-light-levensteken.
+- `doc/FLASHING.md` + `src/synth_top.cst` bijgewerkt (27 MHz primair, PLL optioneel).
+
 ## 2026-06-22 — Pitch-conventie gecorrigeerd naar uniform dCV-protocol
 - Eerdere "256 LSB/semitoon, ref noot 69" was een module-eigen notenconventie en
   brak de protocol-uniformiteit — teruggedraaid. Nu: dCV is **uniform** voor analoge
