@@ -49,8 +49,10 @@ Zie `D:\Git\Muziek\MusicBrain` (ADR 0010/0011, `doc/protocols/spi-frame.md`,
       `ms20_filter_spi.wav`); demo-pad regressie OK.
 - [x] MISO: Pong-antwoord op Ping (`spi_slave` MISO-TX + `spi_frame` Pong-frame
       `A5 01 01 00 D6 F2`); getest in `spi_frame_tb` (11/11 PASS).
-- [x] Pitch-CV/V-oct conventie vastgelegd ([PITCH_CV.md](PITCH_CV.md)): 256 LSB =
-      1 semitoon, ref A4=69. Brain moet dezelfde `value=(note−69)·256` sturen.
+- [x] dCV-conventie vastgelegd ([PITCH_CV.md](PITCH_CV.md)): uniform protocol,
+      16-bit offset-binary full-scale 2¹⁶, geïnterpreteerd via range + pitch-type
+      (FPGA = type-1 module, uitwisselbaar met analoog). Default 0–10V / 1 V/oct /
+      0V=MIDI 0 → `note = (code·120)>>16`. Geen module-eigen notenconventie.
 - [ ] Muzikale schaling van de cutoff/reson/drive-CV verfijnen met de brain.
 - [ ] (later) CvSegment-interpolatie voor vloeiende cutoff bij hoge stem-aantallen.
 

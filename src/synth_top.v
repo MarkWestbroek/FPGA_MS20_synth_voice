@@ -132,12 +132,14 @@ module synth_top #(
         .tx_byte(spi_tx_byte), .tx_load(spi_tx_load)
     );
 
-    // pitch-CV (i16) → MIDI-noot. Conventie (zie doc/PITCH_CV.md, MusicBrain ADR 0014):
-    //   digitale "V/oct": 256 LSB = 1 semitoon, referentienoot 69 (A4 = 440 Hz).
-    //   note = 69 + pitch_cv/256, geclampt 0..127.
-    wire signed [15:0] note_raw = 16'sd69 + (pitch_cv >>> 8);
-    wire [6:0] spi_note = (note_raw < 0)   ? 7'd0   :
-                          (note_raw > 127) ? 7'd127 : note_raw[6:0];
+    // pitch-dCV → MIDI-noot. Uniforme dCV-conventie (zie doc/PITCH_CV.md,
+    // MusicBrain ADR 0014): 16-bit offset-binary, full-scale 2^16
+    //   (0x0000 = range-min, 0xFFFF ≈ range-max).
+    // Default-config: 0..10 V, 1 V/oct, 0 V = MIDI-noot 0 → 10 octaven over 0..0xFFFF.
+    // Bij V/oct is de code lineair in semitonen:  note = (code * 120) >> 16.
+    wire [15:0] pitch_code = pitch_cv;                 // ruwe 16 bits, unsigned
+    wire [23:0] note_calc  = pitch_code * 16'd120;     // 0 .. ~7.86M
+    wire [6:0]  spi_note   = note_calc[22:16];         // /65536 → 0..119 (past in 7 bits)
     wire [10:0] spi_period;
     note_to_period u_n2p (.clk(sys_clk), .note(spi_note), .period(spi_period));
 

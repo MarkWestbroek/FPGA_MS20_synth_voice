@@ -97,8 +97,9 @@ module synth_top_spi_tb();
         send_cvset(8'd2, 16'h6000);   // reson  → k ≈ 0.25 (scream)
         send_cvset(8'd3, 16'h7FFF);   // drive  → ≈ 3.0
 
-        // Pitch-CV voor noot 33 (A1): (33-69)*256 = -9216  (256 LSB/semitoon, ref A4=69)
-        send_cvset(8'd0, -16'sd9216);
+        // Pitch-dCV voor noot 33 (A1): bin-midden = round(33.5*65536/120) = 18295 (0x4777)
+        // (0..10V, 1 V/oct, 0V = MIDI 0; note = code*120>>16 = 33)
+        send_cvset(8'd0, 16'h4777);
 
         // Noot aan
         send_gateset(8'd0, 1'b1);

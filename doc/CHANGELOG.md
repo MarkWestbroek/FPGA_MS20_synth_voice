@@ -2,6 +2,18 @@
 
 Voortgangslog. Nieuwste bovenaan. Zie [ROADMAP.md](ROADMAP.md) voor wat nog komt.
 
+## 2026-06-22 — Pitch-conventie gecorrigeerd naar uniform dCV-protocol
+- Eerdere "256 LSB/semitoon, ref noot 69" was een module-eigen notenconventie en
+  brak de protocol-uniformiteit — teruggedraaid. Nu: dCV is **uniform** voor analoge
+  én digitale modules. 16-bit **offset-binary, full-scale 2¹⁶** (`0x0000`=range-min,
+  `0xFFFF`≈range-max), geïnterpreteerd via range + pitch-type. FPGA = type-1 module.
+- Default-config FPGA: 0–10V, 1 V/oct, 0V = MIDI-noot 0 → `note = (code·120)>>16`
+  (V/oct ⇒ code lineair in semitonen; daarna de bestaande note_to_period LUT).
+- `doc/PITCH_CV.md` herschreven; `synth_top` pitch-mapping aangepast; SPI-render
+  geverifieerd (noot 33 = A1).
+- MusicBrain: `spi-frame.md`, `doc/tech/spi.md` en ADR 0014 verduidelijkt met de
+  offset-binary full-scale-2¹⁶ encoding (vervangt de "i16 −1..+1"-tekst).
+
 ## 2026-06-22 — MISO/Pong, pitch-conventie, flash-voorbereiding
 - MISO-zendpad in `spi_slave.v` + Pong-respons in `spi_frame.v`: een `Ping` levert
   het Pong-frame `A5 01 01 00 D6 F2` op MISO. `spi_frame_tb`: 11/11 PASS.
