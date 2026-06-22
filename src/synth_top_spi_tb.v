@@ -19,7 +19,7 @@ module synth_top_spi_tb();
 
     synth_top uut (
         .sys_clk(sys_clk), .sys_rst_n(sys_rst_n),
-        .spi_sclk(spi_sclk), .spi_mosi(spi_mosi), .spi_cs_n(spi_cs_n),
+        .spi_sclk(spi_sclk), .spi_mosi(spi_mosi), .spi_miso(), .spi_cs_n(spi_cs_n),
         .demo_mode(1'b0),               // SPI-gedreven
         .led(led), .audio_out(audio_out)
     );
@@ -97,8 +97,8 @@ module synth_top_spi_tb();
         send_cvset(8'd2, 16'h6000);   // reson  → k ≈ 0.25 (scream)
         send_cvset(8'd3, 16'h7FFF);   // drive  → ≈ 3.0
 
-        // Pitch-CV voor noot 33 (A1): offset (33-60)=-27 → -27*512 = -13824
-        send_cvset(8'd0, -16'sd13824);
+        // Pitch-CV voor noot 33 (A1): (33-69)*256 = -9216  (256 LSB/semitoon, ref A4=69)
+        send_cvset(8'd0, -16'sd9216);
 
         // Noot aan
         send_gateset(8'd0, 1'b1);

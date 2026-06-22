@@ -42,7 +42,11 @@ module spi_frame (
     output reg               gate,
     output reg               trigger,      // 1-klok puls bij gate 0→1
     output reg               pong_req,     // 1-klok puls bij Ping
-    output reg               frame_ok      // 1-klok puls bij geldig (CRC-correct) frame
+    output reg               frame_ok,     // 1-klok puls bij geldig (CRC-correct) frame
+
+    // MISO-zendpad naar spi_slave: na een Ping wordt het Pong-frame uitgeschoven
+    output wire [7:0]        tx_byte,
+    input  wire              tx_load       // spi_slave laadde net een byte → idx++
 );
 
     // ----- Opcodes -----
@@ -72,6 +76,22 @@ module spi_frame (
     localparam S_PAYLOAD = 3'd4;
     localparam S_CRC_HI  = 3'd5;
     localparam S_CRC_LO  = 3'd6;
+
+    // ----- Pong-respons (MISO) -----
+    // Pong-frame = A5 01 01 00 D6 F2  (D6F2 = CRC-16/CCITT over A5 01 01 00)
+    reg        pong_pending;
+    reg [2:0]  tx_idx;
+    function [7:0] pong_byte(input [2:0] i);
+        case (i)
+            3'd0: pong_byte = 8'hA5;
+            3'd1: pong_byte = 8'h01;
+            3'd2: pong_byte = 8'h01;
+            3'd3: pong_byte = 8'h00;
+            3'd4: pong_byte = 8'hD6;
+            default: pong_byte = 8'hF2;   // i = 5
+        endcase
+    endfunction
+    assign tx_byte = pong_pending ? pong_byte(tx_idx) : 8'h00;
 
     reg [2:0]  state;
     reg [15:0] crc;            // lopende CRC over MAGIC..PAYLOAD
@@ -104,6 +124,8 @@ module spi_frame (
             trigger   <= 1'b0;
             pong_req  <= 1'b0;
             frame_ok  <= 1'b0;
+            pong_pending <= 1'b0;
+            tx_idx       <= 3'd0;
             for (j = 0; j < 8; j = j + 1) payload[j] <= 8'd0;
         end else begin
             // 1-klok pulsen default laag
@@ -111,8 +133,19 @@ module spi_frame (
             pong_req <= 1'b0;
             frame_ok <= 1'b0;
 
+            // Pong-byte-index ophogen wanneer spi_slave een byte laadde
+            if (tx_load && pong_pending) begin
+                if (tx_idx == 3'd5) begin
+                    pong_pending <= 1'b0;     // hele Pong-frame uitgeschoven
+                    tx_idx       <= 3'd0;
+                end else begin
+                    tx_idx <= tx_idx + 3'd1;
+                end
+            end
+
             if (!cs_active) begin
-                state <= S_MAGIC;          // frame-grens: parser resetten
+                state  <= S_MAGIC;         // frame-grens: parser resetten
+                tx_idx <= 3'd0;            // Pong-respons begint volgende frame bij byte 0
             end else if (rx_valid) begin
                 case (state)
                     S_MAGIC: begin
@@ -159,7 +192,11 @@ module spi_frame (
                             frame_ok <= 1'b1;
                             // ----- dispatch -----
                             case (opcode)
-                                OP_PING: pong_req <= 1'b1;
+                                OP_PING: begin
+                                    pong_req     <= 1'b1;
+                                    pong_pending <= 1'b1;   // queue Pong op MISO
+                                    tx_idx       <= 3'd0;
+                                end
 
                                 OP_CVSET: begin
                                     case (slot)

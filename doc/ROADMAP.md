@@ -47,12 +47,20 @@ Zie `D:\Git\Muziek\MusicBrain` (ADR 0010/0011, `doc/protocols/spi-frame.md`,
 - [x] Pitch-CV → KS-period via `note_to_period` LUT (`gen_tables.py` → `note_period.hex`).
 - [x] End-to-end testbench `synth_top_spi_tb.v`: SPI-frames → audio (geverifieerd,
       `ms20_filter_spi.wav`); demo-pad regressie OK.
-- [ ] MISO: Pong-antwoord op Ping (+ later CvInReport indien nodig).
-- [ ] Muzikale schaling van de CV→param-mappings + pitch-CV/V-oct afstemmen met de brain.
+- [x] MISO: Pong-antwoord op Ping (`spi_slave` MISO-TX + `spi_frame` Pong-frame
+      `A5 01 01 00 D6 F2`); getest in `spi_frame_tb` (11/11 PASS).
+- [x] Pitch-CV/V-oct conventie vastgelegd ([PITCH_CV.md](PITCH_CV.md)): 256 LSB =
+      1 semitoon, ref A4=69. Brain moet dezelfde `value=(note−69)·256` sturen.
+- [ ] Muzikale schaling van de cutoff/reson/drive-CV verfijnen met de brain.
+- [ ] (later) CvSegment-interpolatie voor vloeiende cutoff bij hoge stem-aantallen.
 
-### ⬜ Fase 3 — Hardware bring-up: bitstream + audio uit
-- [ ] **Pin-constraints** `.cst`: sys_clk, reset, LED, SPI (SCLK/MOSI/MISO/CS),
-      I2S (BCLK/LRCLK/DATA) op de PMOD-poorten van de Tang Primer 20K.
+### 🔶 Fase 3 — Hardware bring-up: bitstream + audio uit — VOORBEREID
+- [x] Klok geparametriseerd (`SYS_CLK_HZ`): bord is **27 MHz**, niet 50 MHz —
+      PLL→50 MHz of `SYS_CLK_HZ=27_000_000`. Zie [FLASHING.md](FLASHING.md).
+- [x] `.cst`-template ([src/synth_top.cst](../src/synth_top.cst)) + flash-handleiding
+      ([FLASHING.md](FLASHING.md), incl. `openFPGALoader`/Gowin Programmer).
+- [ ] **Pin-constraints** `.cst` invullen: sys_clk, reset, LED, SPI (SCLK/MOSI/
+      MISO/CS), demo_mode, later I2S, op de PMOD-poorten.
 - [ ] **Synthese → place&route → bitstream** in Gowin EDA (top = `synth_top`;
       `synth_top_tb`/`spi_control_tb` op enable=0).
 - [ ] **Flashen naar het bord** — twee opties:

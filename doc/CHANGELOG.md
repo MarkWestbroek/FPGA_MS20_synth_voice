@@ -2,6 +2,18 @@
 
 Voortgangslog. Nieuwste bovenaan. Zie [ROADMAP.md](ROADMAP.md) voor wat nog komt.
 
+## 2026-06-22 — MISO/Pong, pitch-conventie, flash-voorbereiding
+- MISO-zendpad in `spi_slave.v` + Pong-respons in `spi_frame.v`: een `Ping` levert
+  het Pong-frame `A5 01 01 00 D6 F2` op MISO. `spi_frame_tb`: 11/11 PASS.
+  (Bug onderweg: Pong-index resette nu bij frame-einde i.p.v. mid-transactie.)
+- Pitch-conventie vastgelegd: 256 LSB = 1 semitoon, ref A4=69 → `doc/PITCH_CV.md`.
+  `synth_top` pitch-mapping daarop aangepast. Hz/V/S-Trig (MusicBrain ADR 0014)
+  zijn analoog-only en gelden niet voor dit digitale instrument.
+- Flash-voorbereiding: klok geparametriseerd (`SYS_CLK_HZ`, bord = 27 MHz),
+  `src/synth_top.cst`-template + `doc/FLASHING.md` (bring-up volgorde, openFPGALoader).
+- MusicBrain ADR 0013: repo-referentie via GitHub-URL; pitch-open-vraag gekoppeld
+  aan ADR 0014.
+
 ## 2026-06-22 — Fase 2: synth_top wiring (SPI → audio end-to-end)
 - `synth_top.v`: SPI-pins + `spi_slave`/`spi_frame` ingebouwd; CV→param-mapping
   (pitch→KS-period, cutoff→g, reson→k, drive); `demo_mode`-mux houdt de interne

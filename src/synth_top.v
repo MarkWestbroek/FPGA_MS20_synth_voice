@@ -11,13 +11,20 @@
 
 `timescale 1ns / 1ps
 
-module synth_top (
-    input  wire         sys_clk,      // 50 MHz systeemklok
+module synth_top #(
+    // Systeemklok-frequentie. Sim/default = 50 MHz. Op de Tang Primer 20K is het
+    // onboard kristal 27 MHz: gebruik óf een PLL naar 50 MHz (sim == hardware),
+    // óf zet SYS_CLK_HZ = 27_000_000 (zie doc/FLASHING.md).
+    parameter integer SYS_CLK_HZ = 50_000_000,
+    parameter integer SAMPLE_HZ  = 48_000
+) (
+    input  wire         sys_clk,      // systeemklok (zie SYS_CLK_HZ)
     input  wire         sys_rst_n,    // Active-low reset
 
     // SPI-slave (MusicBrain frame-protocol); de brain (Teensy 4.1) is master
     input  wire         spi_sclk,
     input  wire         spi_mosi,
+    output wire         spi_miso,     // slave → master (Pong-respons)
     input  wire         spi_cs_n,
 
     input  wire         demo_mode,    // 1 = interne demo-sequencer, 0 = SPI-CV's
@@ -31,7 +38,9 @@ module synth_top (
     // ========================================================================
     // KLOKVERDELER: 50 MHz → ~48 kHz
     // ========================================================================
-    reg  [10:0] clk_divider;
+    localparam [15:0] CLK_DIV = (SYS_CLK_HZ / SAMPLE_HZ) - 1;  // 1041 @50MHz, 561 @27MHz
+
+    reg  [15:0] clk_divider;
     reg         sample_clk_tick;
 
     always @(posedge sys_clk or posedge rst) begin
@@ -39,7 +48,7 @@ module synth_top (
             clk_divider     <= 0;
             sample_clk_tick <= 0;
         end else begin
-            if (clk_divider >= 11'd1041) begin
+            if (clk_divider >= CLK_DIV) begin
                 clk_divider     <= 0;
                 sample_clk_tick <= 1;
             end else begin
@@ -102,15 +111,16 @@ module synth_top (
     // pitch-CV → MIDI-noot → KS-period (via note_to_period LUT). De CV→Q12.20
     // filter-mappings hieronder zijn voorlopig (vaste shifts, zie ROADMAP).
     // ========================================================================
-    wire [7:0] spi_rx_byte;
-    wire       spi_rx_valid, spi_cs_active;
+    wire [7:0] spi_rx_byte, spi_tx_byte;
+    wire       spi_rx_valid, spi_cs_active, spi_tx_load;
     wire signed [15:0] pitch_cv, cutoff_cv, reson_cv, drive_cv;
     wire       spi_gate, spi_trigger;
 
     spi_slave u_spi_slave (
         .clk(sys_clk), .rst(rst),
-        .sclk(spi_sclk), .mosi(spi_mosi), .cs_n(spi_cs_n),
-        .rx_byte(spi_rx_byte), .rx_valid(spi_rx_valid), .cs_active(spi_cs_active)
+        .sclk(spi_sclk), .mosi(spi_mosi), .miso(spi_miso), .cs_n(spi_cs_n),
+        .rx_byte(spi_rx_byte), .rx_valid(spi_rx_valid), .cs_active(spi_cs_active),
+        .tx_byte(spi_tx_byte), .tx_load(spi_tx_load)
     );
 
     spi_frame u_spi_frame (
@@ -118,11 +128,14 @@ module synth_top (
         .rx_byte(spi_rx_byte), .rx_valid(spi_rx_valid), .cs_active(spi_cs_active),
         .pitch_cv(pitch_cv), .cutoff_cv(cutoff_cv), .reson_cv(reson_cv),
         .drive_cv(drive_cv), .gate(spi_gate), .trigger(spi_trigger),
-        .pong_req(), .frame_ok()
+        .pong_req(), .frame_ok(),
+        .tx_byte(spi_tx_byte), .tx_load(spi_tx_load)
     );
 
-    // pitch-CV (i16) → MIDI-noot rond 60 (±64), geclampt 0..127
-    wire signed [15:0] note_raw = 16'sd60 + (pitch_cv >>> 9);
+    // pitch-CV (i16) → MIDI-noot. Conventie (zie doc/PITCH_CV.md, MusicBrain ADR 0014):
+    //   digitale "V/oct": 256 LSB = 1 semitoon, referentienoot 69 (A4 = 440 Hz).
+    //   note = 69 + pitch_cv/256, geclampt 0..127.
+    wire signed [15:0] note_raw = 16'sd69 + (pitch_cv >>> 8);
     wire [6:0] spi_note = (note_raw < 0)   ? 7'd0   :
                           (note_raw > 127) ? 7'd127 : note_raw[6:0];
     wire [10:0] spi_period;

@@ -20,6 +20,7 @@ module synth_top_tb();
         .sys_rst_n (sys_rst_n),
         .spi_sclk  (1'b0),       // SPI inactief in demo-mode
         .spi_mosi  (1'b0),
+        .spi_miso  (),
         .spi_cs_n  (1'b1),
         .demo_mode (1'b1),       // interne sequencer
         .led       (led),
