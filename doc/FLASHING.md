@@ -18,10 +18,11 @@ met de Gowin IP-wizard (Clock → rPLL) een `27 MHz → 50 MHz` PLL (params kome
 en laat `SYS_CLK_HZ` op 50 MHz. Niet nodig om te beginnen.
 
 ## 1. Pin-constraints (`.cst`)
-Vul [`src/synth_top.cst`](../src/synth_top.cst) met de echte pinnen — via de
-**Gowin FloorPlanner** (grafisch) of handmatig vanuit de board-pinout. Signalen:
-`sys_clk`, `sys_rst_n`, `led`, `spi_sclk/mosi/miso/cs_n`, `demo_mode`
-(en later de I2S-pinnen).
+[`src/synth_top.cst`](../src/synth_top.cst) is al ingevuld voor de eerste flash
+(geverifieerd tegen het Sipeed PT8211-voorbeeld): **`sys_clk`=H11** (27 MHz),
+**`sys_rst_n`=T3** (knop), **`led`=L16**. De SPI- en PT8211-audiopinnen staan er
+als commentaar bij en worden later geactiveerd. `spi_*`/`demo_mode`/`audio_out`
+mogen tijdens de LED-test unconstrained blijven (Gowin plaatst ze automatisch).
 
 ## 2. Bitstream bouwen (Gowin EDA)
 - Project: `MS20_Synth_Voice.gprj`, top = `synth_top`.
@@ -53,11 +54,12 @@ Twee tools werken voor de Tang Primer 20K (GW2A-18C):
    `Pong` (`A5 01 01 00 D6 F2`) op MISO teruggeeft. Bewijst de SPI-link.
 4. **demo_mode = 0**: stuur CvSet/GateSet vanaf de brain → noten/filter via SPI
    (zie [PITCH_CV.md](PITCH_CV.md) voor de getallen-afspraak).
-5. **Audio uit** (Fase 3): `i2s_tx.v` + PCM5102-DAC → analoog; optioneel een
-   Teensy 4.1 die I2S meeluistert → USB.
+5. **Audio uit** (Fase 3): `pt8211_tx.v` → **onboard PT8211 stereo-DAC** (HP_BCK=N15,
+   HP_WS=P16, HP_DIN=P15, PA_EN=R16) → 3.5mm jack. Geen externe DAC nodig.
+   Vereist een kleine PLL (27→6.144 MHz) + /4 → 1.536 MHz bit-clock (Gowin IP-wizard).
 
 ## Tips
 - De huidige `audio_out` is een 32-bit bus voor simulatie. Voor echt geluid komt
-  `i2s_tx.v` ertussen (Fase 3) — pas dan zijn er audio-pinnen nodig.
+  `pt8211_tx.v` ertussen (Fase 3) → de onboard PT8211 — pas dan zijn die audio-pinnen nodig.
 - Begin met SRAM-flashen (snel, niet-persistent) tijdens het debuggen; schrijf pas
   naar embedded flash als het werkt.

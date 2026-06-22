@@ -17,8 +17,8 @@ Zie `D:\Git\Muziek\MusicBrain` (ADR 0010/0011, `doc/protocols/spi-frame.md`,
 - **FPGA = SPI-slave "instrument"**: consumeert die CV/gate-frames en zet ze om
   in KS-toonhoogte (period) + filter g/k. Dit is precies de "audio-instrument"-rol
   die MusicBrain al voor de audio-Teensy had bedacht.
-- **Audio uit**: FPGA → I2S → DAC (PCM5102) → analoog de modular in. Optioneel
-  een Teensy 4.1 die I2S meeluistert → USB-audio voor opname.
+- **Audio uit**: FPGA → **onboard PT8211 stereo-DAC** (op de Dock) → 3.5mm jack.
+  Geen externe DAC nodig. Optioneel een Teensy 4.1 die meeluistert → USB-opname.
 
 > **Let op (ontwerpbeslissing open):** de huidige Fase-2 SPI gebruikt een eigen
 > `[cmd][voice][hi][lo]`-protocol. Voor echte integratie moet dit het MusicBrain
@@ -61,15 +61,17 @@ Zie `D:\Git\Muziek\MusicBrain` (ADR 0010/0011, `doc/protocols/spi-frame.md`,
       PLL→50 MHz of `SYS_CLK_HZ=27_000_000`. Zie [FLASHING.md](FLASHING.md).
 - [x] `.cst`-template ([src/synth_top.cst](../src/synth_top.cst)) + flash-handleiding
       ([FLASHING.md](FLASHING.md), incl. `openFPGALoader`/Gowin Programmer).
-- [ ] **Pin-constraints** `.cst` invullen: sys_clk, reset, LED, SPI (SCLK/MOSI/
-      MISO/CS), demo_mode, later I2S, op de PMOD-poorten.
-- [ ] **Synthese → place&route → bitstream** in Gowin EDA (top = `synth_top`;
-      `synth_top_tb`/`spi_control_tb` op enable=0).
-- [ ] **Flashen naar het bord** — twee opties:
-      - *SRAM* (vluchtig, snel testen) via Gowin Programmer of `openFPGALoader`
-        (`openFPGALoader -b tangprimer20k bitstream.fs`).
-      - *Embedded flash* (persistent na power-cycle) voor de definitieve build.
-- [ ] `i2s_tx.v` (BCLK/LRCLK/DATA, 24-bit, master) → PCM5102 DAC → analoog uit.
+- [x] **Pin-constraints** ingevuld voor first-light (geverifieerd tegen Sipeed
+      PT8211-voorbeeld): `sys_clk`=H11 (27 MHz), `sys_rst_n`=T3, `led`=L16.
+      SPI/demo/audio-pinnen volgen later.
+- [ ] **Synthese → place&route → bitstream** in Gowin EDA (top = `synth_top`).
+- [ ] **Flashen** (SRAM voor testen / embedded flash persistent) via
+      `openFPGALoader -b tangprimer20k` of Gowin Programmer. Eerste doel:
+      LED-heartbeat zien knipperen.
+- [ ] **Onboard PT8211 stereo-DAC gebruiken** (geen externe DAC nodig!): `pt8211_tx.v`
+      → HP_BCK(N15)/HP_WS(P16)/HP_DIN(P15)/PA_EN(R16) → 3.5mm jack.
+      Protocol: BCK 1.536 MHz, 32 BCK/frame = 48 kHz, 16-bit MSB-first, WS L/R.
+      Vereist een kleine PLL (27→6.144 MHz) + /4 voor de 1.536 MHz bit-clock.
 - [ ] Optioneel: Teensy 4.1 die I2S meeluistert → USB-audio voor opname.
 
 ### ⬜ Fase 4 — Polyfonie & stemmen-telling

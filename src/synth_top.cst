@@ -1,46 +1,37 @@
 // ============================================================================
-// synth_top.cst — Physical constraints (pin-toewijzing) voor de Tang Primer 20K
+// synth_top.cst — Physical constraints (pin-toewijzing) Tang Primer 20K Dock
 //
-// TEMPLATE — vul de echte pin-nummers in! Twee manieren:
-//   1) Gowin EDA → FloorPlanner (grafische pin-toewijzing), of
-//   2) hieronder de IO_LOC-regels invullen vanuit de board-pinout/schema van
-//      jouw Tang Primer 20K + dock (de PMOD-pinnen staan in de Sipeed-docs).
-//
-// Syntax:  IO_LOC "signaalnaam" <pinnummer>;
-//          IO_PORT "signaalnaam" IO_TYPE=LVCMOS33 [PULL_MODE=UP] [DRIVE=8];
-//
-// Klok: het onboard kristal is 27 MHz; synth_top draait daar default op
-// (SYS_CLK_HZ = 27_000_000). Verbind "sys_clk" met de 27 MHz-pin (zie de Sipeed
-// Tang Primer 20K pinout / voorbeeld-.cst). Zie doc/FLASHING.md voor de optionele
-// PLL-route naar 50 MHz.
+// Pinnen geverifieerd tegen het officiële Sipeed PT8211-voorbeeld
+// (github.com/sipeed/TangPrimer-20K-example, PT8211/src/pinmap.cst).
+// IO_TYPE bewust weggelaten — Gowin kiest de juiste standaard per bank (zoals
+// het Sipeed-voorbeeld doet). Klok = 27 MHz op H11; synth_top draait native op
+// 27 MHz (SYS_CLK_HZ default). Zie doc/FLASHING.md.
 // ============================================================================
 
-// ---- Klok & reset --------------------------------------------------------
-// IO_LOC  "sys_clk"   <PIN>;     // 27 MHz onboard kristal-pin
-// IO_PORT "sys_clk"   IO_TYPE=LVCMOS33;
-// IO_LOC  "sys_rst_n" <PIN>;     // bijv. een drukknop op de dock
-// IO_PORT "sys_rst_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+// ---- Klok, reset, LED (genoeg voor de eerste flash: LED-heartbeat) --------
+IO_LOC  "sys_clk"   H11;          // 27 MHz onboard kristal
+IO_PORT "sys_clk"   PULL_MODE=UP;
+IO_LOC  "sys_rst_n" T3;           // drukknop (active-low; PULL_MODE=UP = idle hoog)
+IO_PORT "sys_rst_n" PULL_MODE=UP;
+IO_LOC  "led"       L16;          // één van de 6 LED's
+IO_PORT "led"       PULL_MODE=UP;
 
-// ---- Status-LED ----------------------------------------------------------
-// IO_LOC  "led"       <PIN>;
-// IO_PORT "led"       IO_TYPE=LVCMOS33 DRIVE=8;
+// ---- Onboard PT8211 stereo-DAC (Fase 3 — pas actief als pt8211_tx is gewired)
+// De synth_top-poorten hiervoor bestaan nog niet; uncomment zodra pt8211_tx
+// HP_BCK/HP_WS/HP_DIN/PA_EN naar buiten brengt.
+// IO_LOC  "HP_BCK"  N15;  IO_PORT "HP_BCK" PULL_MODE=UP DRIVE=8;   // bit-clock
+// IO_LOC  "HP_WS"   P16;  IO_PORT "HP_WS"  PULL_MODE=UP DRIVE=8;   // word-select (L/R)
+// IO_LOC  "HP_DIN"  P15;  IO_PORT "HP_DIN" PULL_MODE=UP DRIVE=8;   // data
+// IO_LOC  "PA_EN"   R16;  IO_PORT "PA_EN"  PULL_MODE=UP DRIVE=8;   // versterker-enable
 
-// ---- SPI-slave (van de MusicBrain-brain) — kies één PMOD-poort -----------
-// IO_LOC  "spi_sclk"  <PIN>;
-// IO_PORT "spi_sclk"  IO_TYPE=LVCMOS33;
-// IO_LOC  "spi_mosi"  <PIN>;
-// IO_PORT "spi_mosi"  IO_TYPE=LVCMOS33;
-// IO_LOC  "spi_miso"  <PIN>;
-// IO_PORT "spi_miso"  IO_TYPE=LVCMOS33 DRIVE=8;
-// IO_LOC  "spi_cs_n"  <PIN>;
-// IO_PORT "spi_cs_n"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
+// ---- SPI-slave van de brain (Fase 2 hardware — kies vrije PMOD-pinnen) -----
+// Vul met PMOD-pinnen uit de Sipeed-pinout zodra je de brain koppelt.
+// IO_LOC "spi_sclk" <PIN>;  IO_PORT "spi_sclk" PULL_MODE=UP;
+// IO_LOC "spi_mosi" <PIN>;  IO_PORT "spi_mosi" PULL_MODE=UP;
+// IO_LOC "spi_miso" <PIN>;  IO_PORT "spi_miso" PULL_MODE=UP DRIVE=8;
+// IO_LOC "spi_cs_n" <PIN>;  IO_PORT "spi_cs_n" PULL_MODE=UP;
+// IO_LOC "demo_mode" <PIN>; IO_PORT "demo_mode" PULL_MODE=UP;   // bijv. DIP-switch
 
-// ---- demo_mode (bijv. een DIP-switch; 1 = interne demo, 0 = SPI) ---------
-// IO_LOC  "demo_mode" <PIN>;
-// IO_PORT "demo_mode" IO_TYPE=LVCMOS33 PULL_MODE=UP;
-
-// ---- audio_out (32-bit) --------------------------------------------------
-// audio_out[31:0] is nu een interne/bus-uitgang voor simulatie. Voor hardware
-// komt hier later i2s_tx.v tussen (Fase 3): dan vervang je dit door
-// i2s_bclk / i2s_lrclk / i2s_data naar de PCM5102-DAC. audio_out hoeft dan
-// niet naar pinnen.
+// audio_out[31:0] is een sim-bus; op hardware vervangt pt8211_tx die.
+// spi_*/demo_mode/audio_out mogen tijdens de LED-test onbeperkt (unconstrained)
+// blijven — Gowin plaatst ze dan automatisch (onschuldig zolang niets erop zit).
