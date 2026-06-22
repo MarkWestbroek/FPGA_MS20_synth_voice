@@ -2,6 +2,15 @@
 
 Voortgangslog. Nieuwste bovenaan. Zie [ROADMAP.md](ROADMAP.md) voor wat nog komt.
 
+## 2026-06-22 — Bugfix: filter-CV's unsigned + wah-via-SPI geverifieerd
+- **Bug**: cutoff/reson/drive-CV werden in `synth_top` nog *signed* geïnterpreteerd
+  (sign-extend + `<=0?0`), terwijl de dCV-conventie **unsigned offset-binary** is.
+  Cutoff `0xD000` (MSB=1) werd zo negatief → `g=0` → filter dicht. Gefixt: zero-extend
+  (`cutoff_u/reson_u/drive_u`), conform doc/PITCH_CV.md.
+- Geverifieerd met een tijdelijke testbench die vanaf de "brain" een dalende reeks
+  cutoff-`CvSet`'s stuurt: de wah komt terug via SPI, HF daalt vloeiend van ~1500 → 300 Hz
+  (filter start nu op t=0, niet pas na 0.5s). Render: `wav/ms20_filter_spiwah.wav`.
+
 ## 2026-06-22 — Synthese-warnings + 27 MHz-render geverifieerd
 - `ms20_filter.v`: lut_addr-randbug gefixt (`>= X_MAX`, anders wrapt de grenswaarde
   1024 naar adres 0). De overige width-warnings zijn normale fixed-point/teller-

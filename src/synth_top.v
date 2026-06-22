@@ -144,20 +144,20 @@ module synth_top #(
     wire [10:0] spi_period;
     note_to_period u_n2p (.clk(sys_clk), .note(spi_note), .period(spi_period));
 
-    // CV → Q12.20 filter-parameters (sign-extend naar 32-bit eerst)
-    wire signed [31:0] cutoff32 = {{16{cutoff_cv[15]}}, cutoff_cv};
-    wire signed [31:0] reson32  = {{16{reson_cv[15]}},  reson_cv};
-    wire signed [31:0] drive32  = {{16{drive_cv[15]}},  drive_cv};
+    // CV → Q12.20 filterparameters. dCV is offset-binary UNSIGNED (0x0000=min,
+    // 0xFFFF=max), dus zero-extend (NIET sign-extend). Zie doc/PITCH_CV.md.
+    wire [31:0] cutoff_u = {16'd0, cutoff_cv};
+    wire [31:0] reson_u  = {16'd0, reson_cv};
+    wire [31:0] drive_u  = {16'd0, drive_cv};
 
-    // cutoff: 0..+1 → g 0..~0.25
-    wire signed [31:0] g_spi = (cutoff32 <= 0) ? 32'sd0 : (cutoff32 <<< 3);
+    // cutoff: 0..0xFFFF → g 0..~0.5
+    wire signed [31:0] g_spi = $signed(cutoff_u << 3);
     // resonance: hoger CV = meer resonantie = LAGERE demping k (floor 0.125)
-    wire signed [31:0] k_sub     = (reson32 < 0) ? 32'sd0 : (reson32 <<< 5);
+    wire signed [31:0] k_sub     = $signed(reson_u << 5);
     wire signed [31:0] k_spi_raw = 32'sh00100000 - k_sub;
     wire signed [31:0] k_spi     = (k_spi_raw < 32'sh00020000) ? 32'sh00020000 : k_spi_raw;
-    // drive: 1.0 + positief CV
-    wire signed [31:0] drive_add = (drive32 < 0) ? 32'sd0 : (drive32 <<< 6);
-    wire signed [31:0] drive_spi = 32'sh00100000 + drive_add;
+    // drive: 1.0 + CV
+    wire signed [31:0] drive_spi = 32'sh00100000 + $signed(drive_u << 6);
 
     // trigger naar het audio-tick (ce) domein tillen.
     // Net als de demo's trigger_pulse: alleen op ticks bijwerken, zodat de puls
