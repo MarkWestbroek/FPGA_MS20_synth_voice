@@ -16,13 +16,11 @@ IO_PORT "sys_rst_n" PULL_MODE=UP;
 IO_LOC  "led"       L16;          // één van de 6 LED's
 IO_PORT "led"       PULL_MODE=UP;
 
-// ---- Onboard PT8211 stereo-DAC (Fase 3 — pas actief als pt8211_tx is gewired)
-// De synth_top-poorten hiervoor bestaan nog niet; uncomment zodra pt8211_tx
-// HP_BCK/HP_WS/HP_DIN/PA_EN naar buiten brengt.
-// IO_LOC  "HP_BCK"  N15;  IO_PORT "HP_BCK" PULL_MODE=UP DRIVE=8;   // bit-clock
-// IO_LOC  "HP_WS"   P16;  IO_PORT "HP_WS"  PULL_MODE=UP DRIVE=8;   // word-select (L/R)
-// IO_LOC  "HP_DIN"  P15;  IO_PORT "HP_DIN" PULL_MODE=UP DRIVE=8;   // data
-// IO_LOC  "PA_EN"   R16;  IO_PORT "PA_EN"  PULL_MODE=UP DRIVE=8;   // versterker-enable
+// ---- Onboard PT8211 stereo-DAC → 3.5mm jack (pt8211_tx is gewired) ----
+IO_LOC  "hp_bck" N15;  IO_PORT "hp_bck" PULL_MODE=UP DRIVE=8;   // bit-clock
+IO_LOC  "hp_ws"  P16;  IO_PORT "hp_ws"  PULL_MODE=UP DRIVE=8;   // word-select (L/R)
+IO_LOC  "hp_din" P15;  IO_PORT "hp_din" PULL_MODE=UP DRIVE=8;   // data
+IO_LOC  "pa_en"  R16;  IO_PORT "pa_en"  PULL_MODE=UP DRIVE=8;   // versterker-enable
 
 // ---- SPI-slave van de brain (Fase 2 hardware — kies vrije PMOD-pinnen) -----
 // Vul met PMOD-pinnen uit de Sipeed-pinout zodra je de brain koppelt.

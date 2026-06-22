@@ -68,10 +68,13 @@ Zie `D:\Git\Muziek\MusicBrain` (ADR 0010/0011, `doc/protocols/spi-frame.md`,
 - [ ] **Flashen** (SRAM voor testen / embedded flash persistent) via
       `openFPGALoader -b tangprimer20k` of Gowin Programmer. Eerste doel:
       LED-heartbeat zien knipperen.
-- [ ] **Onboard PT8211 stereo-DAC gebruiken** (geen externe DAC nodig!): `pt8211_tx.v`
-      → HP_BCK(N15)/HP_WS(P16)/HP_DIN(P15)/PA_EN(R16) → 3.5mm jack.
-      Protocol: BCK 1.536 MHz, 32 BCK/frame = 48 kHz, 16-bit MSB-first, WS L/R.
-      Vereist een kleine PLL (27→6.144 MHz) + /4 voor de 1.536 MHz bit-clock.
+- [x] **Onboard PT8211 stereo-DAC**: `pt8211_tx.v` geschreven (PLL-vrij: BCK =
+      sys_clk/18 = 1.5 MHz → 46.875 kHz frames; 16-bit MSB-first, WS L/R, MSB-timing
+      volgt het Sipeed-voorbeeld). Getest in `pt8211_tx_tb` (3/3 PASS, sample
+      gereconstrueerd uit DIN). Gewired in `synth_top` (filter_out >>>4 → 16-bit
+      met saturatie) → hp_bck(N15)/hp_ws(P16)/hp_din(P15)/pa_en(R16). `.cst` actief.
+- [ ] Op hardware testen: na flash geluid uit de 3.5mm jack (demo_mode=1 of via SPI).
+- [ ] (optioneel, "spotless") PLL 27→6.144 MHz + /4 → exact 48 kHz, sample-locked.
 - [ ] Optioneel: Teensy 4.1 die I2S meeluistert → USB-audio voor opname.
 
 ### ⬜ Fase 4 — Polyfonie & stemmen-telling

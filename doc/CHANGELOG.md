@@ -2,6 +2,17 @@
 
 Voortgangslog. Nieuwste bovenaan. Zie [ROADMAP.md](ROADMAP.md) voor wat nog komt.
 
+## 2026-06-23 — Audio-uit: onboard PT8211 DAC (Fase 3)
+- First-light geslaagd op hardware: LED-heartbeat knippert (klok + flash + pinnen OK).
+- `pt8211_tx.v`: serializer voor de onboard PT8211 stereo-DAC, **PLL-vrij** — BCK =
+  sys_clk/18 (1.5 MHz) → 46.875 kHz frames, 16-bit MSB-first, WS L/R; bit/WS-timing
+  volgt het Sipeed `pt8211_drive`-voorbeeld. `pt8211_tx_tb`: 3/3 PASS.
+- Gewired in `synth_top`: `filter_out` (Q12.20) → 16-bit signed (>>>4 + saturatie) →
+  PT8211. Nieuwe poorten hp_bck/hp_ws/hp_din/pa_en; `.cst` audio-pinnen actief
+  (N15/P16/P15/R16). Synth draait door op z'n 48 kHz-tabellen (tuning correct);
+  DAC doet zero-order-hold resample (verwaarloosbaar artefact, zie discussie).
+- Demo-regressie OK (filter peak ongewijzigd).
+
 ## 2026-06-22 — Bugfix: filter-CV's unsigned + wah-via-SPI geverifieerd
 - **Bug**: cutoff/reson/drive-CV werden in `synth_top` nog *signed* geïnterpreteerd
   (sign-extend + `<=0?0`), terwijl de dCV-conventie **unsigned offset-binary** is.

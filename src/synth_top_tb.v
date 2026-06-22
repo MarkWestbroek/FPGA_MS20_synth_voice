@@ -24,7 +24,8 @@ module synth_top_tb();
         .spi_cs_n  (1'b1),
         .demo_mode (1'b1),       // interne sequencer
         .led       (led),
-        .audio_out (audio_out)
+        .audio_out (audio_out),
+        .hp_bck    (), .hp_ws (), .hp_din (), .pa_en ()
     );
 
     // ========================================================================

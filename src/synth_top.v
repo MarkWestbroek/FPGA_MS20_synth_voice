@@ -31,7 +31,13 @@ module synth_top #(
     input  wire         demo_mode,    // 1 = interne demo-sequencer, 0 = SPI-CV's
 
     output wire         led,          // Status LED
-    output wire signed [31:0] audio_out  // Q12.20 audio-uitgang
+    output wire signed [31:0] audio_out, // Q12.20 audio-uitgang (sim/debug)
+
+    // Onboard PT8211 stereo-DAC (Tang Primer 20K Dock → 3.5mm jack)
+    output wire         hp_bck,
+    output wire         hp_ws,
+    output wire         hp_din,
+    output wire         pa_en
 );
 
     wire rst = !sys_rst_n;
@@ -288,6 +294,25 @@ module synth_top #(
     // UITGANGEN
     // ========================================================================
     assign audio_out = filter_out;
+
+    // ---- Onboard PT8211 DAC: 32-bit Q12.20 → 16-bit signed (gain ~2 + saturatie)
+    // >>>4: een signaal van 0.5 (Q12.20) bereikt full-scale; filter-pieken ~0.2-0.25
+    // → ~-6 dBFS. Pas de shift aan voor meer/minder volume.
+    wire signed [31:0] dac_scaled = filter_out >>> 4;
+    wire signed [15:0] dac_sample =
+        (dac_scaled >  32'sd32767)  ?  16'sd32767  :
+        (dac_scaled < -32'sd32768)  ? -16'sd32768  :
+        dac_scaled[15:0];
+
+    pt8211_tx u_dac (
+        .clk      (sys_clk),
+        .rst      (rst),
+        .sample_in(dac_sample),
+        .hp_bck   (hp_bck),
+        .hp_ws    (hp_ws),
+        .hp_din   (hp_din),
+        .pa_en    (pa_en)
+    );
 
     // LED-heartbeat (~0.8 Hz @27MHz): zichtbaar levensteken bij de eerste flash —
     // bewijst dat klok + bitstream draaien, los van audio.
