@@ -17,6 +17,8 @@ IO_LOC  "led"       L16;          // één van de 6 LED's
 IO_PORT "led"       PULL_MODE=UP;
 IO_LOC  "key_mute_n" T4;          // DIP-switch (niveau): stand bepaalt audio aan/uit
 IO_PORT "key_mute_n" PULL_MODE=UP;
+IO_LOC  "wah_sw"     E8;          // schakelaar (niveau): wah aan/uit (hoog=aan)
+IO_PORT "wah_sw"     PULL_MODE=UP;
 
 // ---- Onboard PT8211 stereo-DAC → 3.5mm jack (pt8211_tx is gewired) ----
 // DRIVE laag (4) gehouden om digitale koppeling in de analoge sectie te beperken.

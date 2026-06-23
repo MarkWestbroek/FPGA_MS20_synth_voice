@@ -33,7 +33,8 @@ module synth_top #(
     input  wire         spi_cs_n,
 
     input  wire         demo_mode,    // 1 = interne demo-sequencer, 0 = SPI-CV's
-    input  wire         key_mute_n,   // drukknop (active-low): toggle audio aan/uit
+    input  wire         key_mute_n,   // DIP-switch (niveau): audio aan/uit
+    input  wire         wah_sw,       // schakelaar (niveau): wah-envelope aan/uit (hoog=aan)
 
     output wire         led,          // Status LED
 
@@ -239,12 +240,20 @@ module synth_top #(
     reg        filter_mode;
 
     // tanh-drive (Q12.20). 1.0 = 0x00100000 (vrijwel lineair). Hoger = meer bite.
-    wire signed [31:0] filter_drive = 32'h00180000;  // 1.5 — milde drive (geen scream)
+    wire signed [31:0] filter_drive = 32'h00200000;  // 2.0 — wat meer bite
 
-    // Filter g-waarden voor envelope-punten (96 kHz interne rate)
-    wire signed [31:0] G_CLOSED = 32'h0000359E;  // ~200 Hz
-    wire signed [31:0] G_OPEN   = 32'h000191F6;  // ~1500 Hz
-    wire signed [31:0] G_MEDIUM = 32'h00006B3B;  // ~400 Hz
+    // Filter g-waarden (96 kHz interne rate). Bredere sweep = uitgesprokener wah.
+    wire signed [31:0] G_CLOSED = 32'h0000359E;  // ~200 Hz (reset)
+    wire signed [31:0] G_OPEN   = 32'h000322F5;  // ~3000 Hz (aanslag: ver open)
+    wire signed [31:0] G_MEDIUM = 32'h00005067;  // ~300 Hz  (einde sweep: dicht)
+    wire signed [31:0] G_FIXED  = 32'h0000D671;  // ~800 Hz  (statisch, als wah uit)
+
+    // wah-schakelaar synchroniseren (schoon niveau, 2-FF). Default hoog = wah aan.
+    reg [1:0] wah_s;
+    wire wah_on = wah_s[1];
+    always @(posedge sys_clk or posedge rst)
+        if (rst) wah_s <= 2'b11;
+        else     wah_s <= {wah_s[0], wah_sw};
 
     always @(posedge sys_clk or posedge rst) begin
         if (rst) begin
@@ -252,23 +261,25 @@ module synth_top #(
             filter_g    <= G_CLOSED;
             // k is de DEMPINGSfactor (q=1/Q): LAGER = meer resonantie.
             // ~0.25 = hoge resonantie, tanh begrenst de zelfoscillatie (scream).
-            filter_k    <= 32'h00140000;  // ~1.25 — goed gedempt (geen zelf-oscillatie)
+            filter_k    <= 32'h000A0000;  // ~0.625 — resonanter (meer "vocale" wah)
             filter_mode <= 1'b0;          // Low-pass
         end else if (sample_clk_tick) begin
             if (trigger_pulse) begin
-                // Nieuwe noot: reset envelope, open filter
+                // Nieuwe noot: wah aan → open filter & sweep; wah uit → vaste cutoff
                 env_timer <= 0;
-                filter_g  <= G_OPEN;
-            end else begin
+                filter_g  <= wah_on ? G_OPEN : G_FIXED;
+            end else if (wah_on) begin
                 if (env_timer < 16'd24000) begin
                     env_timer <= env_timer + 1;
 
                     // Elke 64 samples: stapje dichter naar G_MEDIUM
-                    // (G_OPEN - G_MEDIUM) / (24000/64) = 75451/375 ≈ 0xC9
-                    if (env_timer[5:0] == 6'd0 && filter_g > (G_MEDIUM + 32'hC9)) begin
-                        filter_g <= filter_g - 32'h000000C9;
+                    // (G_OPEN - G_MEDIUM)/(24000/64) = 185486/375 ≈ 0x1EF
+                    if (env_timer[5:0] == 6'd0 && filter_g > (G_MEDIUM + 32'h1EF)) begin
+                        filter_g <= filter_g - 32'h000001EF;
                     end
                 end
+            end else begin
+                filter_g <= G_FIXED;       // wah uit: statische cutoff
             end
         end
     end
@@ -305,10 +316,10 @@ module synth_top #(
     // ---- Onboard PT8211 DAC: 32-bit Q12.20 → 16-bit signed (gain ~2 + saturatie)
     // >>>4: een signaal van 0.5 (Q12.20) bereikt full-scale; filter-pieken ~0.2-0.25
     // → ~-6 dBFS. Pas de shift aan voor meer/minder volume.
-    // Gain hoog → signaal bijna full-scale → beste SNR uit de (ruisige) PT8211.
-    // >>>2 ≈ -1 dBFS piek bij de demo; saturatie vangt uitschieters. Klinkt het
-    // vervormd op luidere patches, ga dan naar >>>3.
-    wire signed [31:0] dac_scaled = filter_out >>> 2;
+    // Gain: door de resonante wah zijn de pieken groter (~0.32), dus >>>4 geeft al
+    // een luide ~-4 dBFS piek zónder clipping (beste SNR uit de PT8211). Saturatie
+    // vangt restuitschieters. Minder resonantie? Dan kan de gain weer omhoog.
+    wire signed [31:0] dac_scaled = filter_out >>> 4;
     wire signed [15:0] dac_sample =
         (dac_scaled >  32'sd32767)  ?  16'sd32767  :
         (dac_scaled < -32'sd32768)  ? -16'sd32768  :
