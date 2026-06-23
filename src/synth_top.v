@@ -337,6 +337,7 @@ module synth_top #(
         .clk      (sys_clk),
         .rst      (rst),
         .sample_in(dac_out),
+        .en       (audio_en),     // mute (T4) zet ook de versterker uit → echt stil
         .hp_bck   (hp_bck),
         .hp_ws    (hp_ws),
         .hp_din   (hp_din),

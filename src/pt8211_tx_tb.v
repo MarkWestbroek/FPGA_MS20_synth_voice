@@ -15,7 +15,7 @@ module pt8211_tx_tb();
     wire hp_bck, hp_ws, hp_din, pa_en;
 
     pt8211_tx dut (
-        .clk(clk), .rst(rst), .sample_in(sample),
+        .clk(clk), .rst(rst), .sample_in(sample), .en(1'b1),
         .hp_bck(hp_bck), .hp_ws(hp_ws), .hp_din(hp_din), .pa_en(pa_en)
     );
 

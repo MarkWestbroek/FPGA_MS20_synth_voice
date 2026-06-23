@@ -26,14 +26,15 @@ module pt8211_tx #(
     input  wire        clk,             // sys_clk (27 MHz)
     input  wire        rst,             // active-high
     input  wire signed [15:0] sample_in,// mono 16-bit signed audio
+    input  wire        en,              // 1 = versterker aan, 0 = uit (mute = echt stil)
 
     output reg         hp_bck,          // bit-clock naar PT8211
     output wire        hp_ws,           // word-select (L/R)
     output wire        hp_din,          // serial data
-    output wire        pa_en            // versterker-enable (altijd aan)
+    output wire        pa_en            // versterker-enable
 );
 
-    assign pa_en = 1'b1;
+    assign pa_en = en;
 
     // ---- BCK-generatie: deel sys_clk door DIV (50% duty) ----
     reg [4:0] divc;

@@ -19,10 +19,11 @@ IO_LOC  "key_mute_n" T4;          // DIP-switch (niveau): stand bepaalt audio aa
 IO_PORT "key_mute_n" PULL_MODE=UP;
 
 // ---- Onboard PT8211 stereo-DAC → 3.5mm jack (pt8211_tx is gewired) ----
-IO_LOC  "hp_bck" N15;  IO_PORT "hp_bck" PULL_MODE=UP DRIVE=8;   // bit-clock
-IO_LOC  "hp_ws"  P16;  IO_PORT "hp_ws"  PULL_MODE=UP DRIVE=8;   // word-select (L/R)
-IO_LOC  "hp_din" P15;  IO_PORT "hp_din" PULL_MODE=UP DRIVE=8;   // data
-IO_LOC  "pa_en"  R16;  IO_PORT "pa_en"  PULL_MODE=UP DRIVE=8;   // versterker-enable
+// DRIVE laag (4) gehouden om digitale koppeling in de analoge sectie te beperken.
+IO_LOC  "hp_bck" N15;  IO_PORT "hp_bck" PULL_MODE=UP DRIVE=4;   // bit-clock
+IO_LOC  "hp_ws"  P16;  IO_PORT "hp_ws"  PULL_MODE=UP DRIVE=4;   // word-select (L/R)
+IO_LOC  "hp_din" P15;  IO_PORT "hp_din" PULL_MODE=UP DRIVE=4;   // data
+IO_LOC  "pa_en"  R16;  IO_PORT "pa_en"  PULL_MODE=UP DRIVE=4;   // versterker-enable
 
 // ---- SPI-slave van de brain (Fase 2 hardware — kies vrije PMOD-pinnen) -----
 // Vul met PMOD-pinnen uit de Sipeed-pinout zodra je de brain koppelt.
