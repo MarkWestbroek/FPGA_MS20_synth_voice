@@ -305,30 +305,29 @@ module synth_top #(
     // ---- Onboard PT8211 DAC: 32-bit Q12.20 → 16-bit signed (gain ~2 + saturatie)
     // >>>4: een signaal van 0.5 (Q12.20) bereikt full-scale; filter-pieken ~0.2-0.25
     // → ~-6 dBFS. Pas de shift aan voor meer/minder volume.
-    wire signed [31:0] dac_scaled = filter_out >>> 6;
+    wire signed [31:0] dac_scaled = filter_out >>> 4;  // ~-13 dBFS piek (luider = betere SNR)
     wire signed [15:0] dac_sample =
         (dac_scaled >  32'sd32767)  ?  16'sd32767  :
         (dac_scaled < -32'sd32768)  ? -16'sd32768  :
         dac_scaled[15:0];
 
-    // ---- Mute-knop: één druk = audio aan/uit (toggle). Active-low, gedebounced.
-    // Default audio_en = 1 (aan), zodat de demo speelt zonder knop / bij verkeerde pin.
+    // ---- Mute via DIP-switch (T4): niveau-gebaseerd, gedebounced.
+    // audio_en volgt de DIP-stand: 1 (pull-up) = geluid aan, 0 = stil.
+    // Default audio_en = 1, zodat de demo speelt bij verkeerde/niet-bedrade pin.
     reg  [1:0]  key_s;
     reg  [19:0] key_db_cnt;
-    reg         key_db, key_db_prev, audio_en;
+    reg         key_db, audio_en;
     always @(posedge sys_clk or posedge rst) begin
         if (rst) begin
-            key_s <= 2'b11; key_db_cnt <= 20'd0;
-            key_db <= 1'b1; key_db_prev <= 1'b1; audio_en <= 1'b1;
+            key_s <= 2'b11; key_db_cnt <= 20'd0; key_db <= 1'b1; audio_en <= 1'b1;
         end else begin
             key_s <= {key_s[0], key_mute_n};           // synchroniseer
             if (key_s[1] == key_db) key_db_cnt <= 20'd0;
             else begin
                 key_db_cnt <= key_db_cnt + 20'd1;
-                if (&key_db_cnt) key_db <= key_s[1];   // ~39ms stabiel → accepteer
+                if (&key_db_cnt) key_db <= key_s[1];   // ~39ms stabiel → accepteer stand
             end
-            key_db_prev <= key_db;
-            if (key_db_prev && !key_db) audio_en <= ~audio_en;  // dalende flank = druk
+            audio_en <= key_db;                        // niveau = aan/uit
         end
     end
 
