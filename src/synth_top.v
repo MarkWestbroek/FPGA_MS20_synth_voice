@@ -305,7 +305,10 @@ module synth_top #(
     // ---- Onboard PT8211 DAC: 32-bit Q12.20 → 16-bit signed (gain ~2 + saturatie)
     // >>>4: een signaal van 0.5 (Q12.20) bereikt full-scale; filter-pieken ~0.2-0.25
     // → ~-6 dBFS. Pas de shift aan voor meer/minder volume.
-    wire signed [31:0] dac_scaled = filter_out >>> 4;  // ~-13 dBFS piek (luider = betere SNR)
+    // Gain hoog → signaal bijna full-scale → beste SNR uit de (ruisige) PT8211.
+    // >>>2 ≈ -1 dBFS piek bij de demo; saturatie vangt uitschieters. Klinkt het
+    // vervormd op luidere patches, ga dan naar >>>3.
+    wire signed [31:0] dac_scaled = filter_out >>> 2;
     wire signed [15:0] dac_sample =
         (dac_scaled >  32'sd32767)  ?  16'sd32767  :
         (dac_scaled < -32'sd32768)  ? -16'sd32768  :
