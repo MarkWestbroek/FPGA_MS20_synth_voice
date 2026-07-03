@@ -64,7 +64,7 @@ module synth_top #(
                 clk_divider     <= 0;
                 sample_clk_tick <= 1;
             end else begin
-                clk_divider     <= clk_divider + 1;
+                clk_divider     <= clk_divider + 16'd1;
                 sample_clk_tick <= 0;
             end
         end
@@ -109,9 +109,9 @@ module synth_top #(
 
             if (seq_timer >= 18'd72000) begin  // ~1.5 sec per noot
                 seq_timer  <= 0;
-                note_index <= note_index + 1;   // Volgende noot (wraps bij 2 bits)
+                note_index <= note_index + 2'd1;   // Volgende noot (wraps bij 2 bits)
             end else begin
-                seq_timer <= seq_timer + 1;
+                seq_timer <= seq_timer + 18'd1;
             end
         end
     end
@@ -270,7 +270,7 @@ module synth_top #(
                 filter_g  <= wah_on ? G_OPEN : G_FIXED;
             end else if (wah_on) begin
                 if (env_timer < 16'd24000) begin
-                    env_timer <= env_timer + 1;
+                    env_timer <= env_timer + 16'd1;
 
                     // Elke 64 samples: stapje dichter naar G_MEDIUM
                     // (G_OPEN - G_MEDIUM)/(24000/64) = 185486/375 ≈ 0x1EF

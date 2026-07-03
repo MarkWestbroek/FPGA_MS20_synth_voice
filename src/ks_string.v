@@ -70,7 +70,7 @@ module ks_string #(
     wire signed [31:0] noise_sample = {{11{lfsr[20]}}, lfsr[20:0]};
 
     // Volgende pointer (circulair)
-    wire [10:0] next_ptr = (ptr >= period - 1) ? 11'd0 : ptr + 1;
+    wire [10:0] next_ptr = (ptr >= period - 11'd1) ? 11'd0 : ptr + 11'd1;
 
     // ========================================================================
     // Combinatorische compute-logica (voor S_COMPUTE state)
@@ -126,7 +126,7 @@ module ks_string #(
                         initialized <= 1;
                         ptr         <= 0;
                     end else begin
-                        fill_cnt <= fill_cnt + 1;
+                        fill_cnt <= fill_cnt + 11'd1;
                     end
                 end
 

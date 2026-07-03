@@ -102,7 +102,7 @@ module ms20_filter #(
     // ========================================================================
     // hp = in - lp - k * tanh(drive*bp)
     wire signed [63:0] prod_k        = $signed(k) * $signed(lut_tanh);
-    wire signed [31:0] feedback      = prod_k >>> 20;
+    wire signed [31:0] feedback      = prod_k[51:20];   // Q12.20-slice (k·tanh ≤ ~2, past ruim)
     wire signed [31:0] hp            = $signed(in_held) - $signed(lp) - $signed(feedback);
 
     // bp_next = sat(bp + g*hp) — som breed uitgerekend, dan clampen op ±16.0
@@ -131,6 +131,7 @@ module ms20_filter #(
     reg [1:0]  state;
     reg [3:0]  step;             // sub-stap teller (genoeg voor OVERSAMPLE<=16)
     reg signed [39:0] acc;       // som van sub-stap-outputs voor middeling
+    wire signed [39:0] acc_avg = acc >>> OS_SHIFT;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -170,8 +171,9 @@ module ms20_filter #(
                 end
 
                 // Decimatie: gemiddelde van de OVERSAMPLE sub-stappen
+                // (sub_out is geclampt op ±16.0, dus het gemiddelde past in 32 bit)
                 S_DONE: begin
-                    audio_out <= acc >>> OS_SHIFT;
+                    audio_out <= acc_avg[31:0];
                     state     <= S_IDLE;
                 end
 
