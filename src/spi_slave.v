@@ -20,7 +20,7 @@ module spi_slave (
     // SPI-pinnen (asynchroon t.o.v. clk)
     input  wire       sclk,
     input  wire       mosi,
-    output reg        miso,       // slave → master (data out)
+    output wire       miso,       // slave → master; hi-Z als CS_N hoog (gedeelde bus)
     input  wire       cs_n,
 
     // Ontvangen byte (clk-domein)
@@ -94,14 +94,19 @@ module spi_slave (
     end
 
     // ----- MISO zend-pad (mode 0: MSB op CS-assert / op dalende flank) -----
+    // MISO is alleen gedreven zolang CS_N (gesynchroniseerd) laag is; daarbuiten
+    // hi-Z, zodat meerdere slaves dezelfde MISO-lijn kunnen delen zonder conflict.
     reg [7:0] tx_sh;
     reg [2:0] tx_bit;
+    reg       miso_r;
+
+    assign miso = cs_n_sync ? 1'bz : miso_r;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             tx_sh   <= 8'd0;
             tx_bit  <= 3'd0;
-            miso    <= 1'b0;
+            miso_r  <= 1'b0;
             tx_load <= 1'b0;
         end else begin
             tx_load <= 1'b0;
@@ -119,7 +124,7 @@ module spi_slave (
                     tx_bit <= tx_bit + 3'd1;
                 end
             end
-            miso <= tx_sh[7];             // MSB-first
+            miso_r <= tx_sh[7];           // MSB-first
         end
     end
 
