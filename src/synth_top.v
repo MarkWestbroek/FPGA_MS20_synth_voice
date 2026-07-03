@@ -34,8 +34,8 @@ module synth_top #(
 
     input  wire         demo_mode,    // 1 = interne demo-sequencer, 0 = SPI-CV's
     input  wire         key_mute_n,   // DIP-switch (niveau): audio aan/uit
-    input  wire         wah_sw,       // DIP-switch (niveau): wah-envelope aan/uit (hoog=aan)
-    input  wire         wah_btn_n,    // drukknop (active-low): elke druk flipt de wah
+    input  wire         wah_sw,       // DIP-switch: wah master aan/uit (hoog=aan)
+    input  wire         wah_btn_n,    // drukknop (active-low): stapt wah-niveau 0..3 (wrapt)
 
     output wire         led,          // Status LED
 
@@ -219,35 +219,29 @@ module synth_top #(
     );
 
     // ========================================================================
-    // MS-20 FILTER — met envelope op de cutoff
+    // MS-20 FILTER — met envelope op de cutoff, in 4 WAH-NIVEAUS
     //
-    // Filter-envelope per noot:
-    //   Attack:  cutoff gaat snel open  (200Hz → 1500Hz in ~50ms)
-    //   Decay:   cutoff zakt langzaam terug (1500Hz → 400Hz in ~1 sec)
+    // Filter-envelope per noot: attack opent de cutoff, daarna zakt hij in
+    // ~0.5 s terug. Dit geeft de karakteristieke "wah" per aanslag.
     //
-    // Dit geeft de karakteristieke "wah" per aanslag, typisch voor synth bass.
+    // T2 (drukknop) stapt door de niveaus: 0=uit → 1=licht → 2=medium →
+    // 3=dik → terug naar 0. Per niveau gaan sweep-breedte, resonantie (lagere
+    // k) en drive omhoog. Niveau 2 ≈ het oude vaste wah-geluid.
     //
     // LET OP: het filter draait intern op 2x oversampling (96 kHz), dus de
     // Chamberlin cutoff-coeff is g = 2*sin(pi*fc/96000)  (zie gen_tables.py):
     //   g(200Hz)  ≈ 0.01309 → Q12.20: 0x0000359E
-    //   g(400Hz)  ≈ 0.02618 → Q12.20: 0x00006B3B
+    //   g(300Hz)  ≈ 0.01963 → Q12.20: 0x00005067
+    //   g(800Hz)  ≈ 0.05233 → Q12.20: 0x0000D671
     //   g(1500Hz) ≈ 0.09814 → Q12.20: 0x000191F6
-    //
-    // Resonance: k ≈ 1.25 ; drive ≈ 3.0 duwt de tanh in saturatie (MS-20 bite)
+    //   g(3000Hz) ≈ 0.19603 → Q12.20: 0x000322F5
+    //   g(4000Hz) ≈ 0.26105 → Q12.20: 0x00042D45
     // ========================================================================
     reg [15:0] env_timer;
     reg signed [31:0] filter_g;
-    reg signed [31:0] filter_k;
     reg        filter_mode;
 
-    // tanh-drive (Q12.20). 1.0 = 0x00100000 (vrijwel lineair). Hoger = meer bite.
-    wire signed [31:0] filter_drive = 32'h00200000;  // 2.0 — wat meer bite
-
-    // Filter g-waarden (96 kHz interne rate). Bredere sweep = uitgesprokener wah.
-    wire signed [31:0] G_CLOSED = 32'h0000359E;  // ~200 Hz (reset)
-    wire signed [31:0] G_OPEN   = 32'h000322F5;  // ~3000 Hz (aanslag: ver open)
-    wire signed [31:0] G_MEDIUM = 32'h00005067;  // ~300 Hz  (einde sweep: dicht)
-    wire signed [31:0] G_FIXED  = 32'h0000D671;  // ~800 Hz  (statisch, als wah uit)
+    localparam signed [31:0] G_FIXED = 32'h0000D671;  // ~800 Hz (statisch, wah uit)
 
     // wah-schakelaar synchroniseren (schoon niveau, 2-FF). Default hoog = wah aan.
     reg [1:0] wah_s;
@@ -256,14 +250,17 @@ module synth_top #(
         else     wah_s <= {wah_s[0], wah_sw};
 
     // wah-drukknop: synchroniseren + debouncen (~39ms @27MHz, zoals key_mute_n);
-    // elke druk (dalende flank op het gedebouncede niveau) flipt wah_flip.
+    // elke druk (dalende flank op het gedebouncede niveau) stapt een niveau
+    // omhoog: 0=uit → 1=licht → 2=medium → 3=dik → 0=uit → ...
     reg [1:0]  btn_s;
     reg [19:0] btn_db_cnt;
-    reg        btn_db, btn_db_d, wah_flip;
+    reg        btn_db, btn_db_d;
+    reg [1:0]  wah_level;
     always @(posedge sys_clk or posedge rst) begin
         if (rst) begin
             btn_s <= 2'b11; btn_db_cnt <= 20'd0;
-            btn_db <= 1'b1; btn_db_d <= 1'b1; wah_flip <= 1'b0;
+            btn_db <= 1'b1; btn_db_d <= 1'b1;
+            wah_level <= 2'd2;                 // boot: medium (≈ het oude geluid)
         end else begin
             btn_s <= {btn_s[0], wah_btn_n};
             if (btn_s[1] == btn_db) btn_db_cnt <= 20'd0;
@@ -272,36 +269,67 @@ module synth_top #(
                 if (&btn_db_cnt) btn_db <= btn_s[1];
             end
             btn_db_d <= btn_db;
-            if (btn_db_d & ~btn_db) wah_flip <= ~wah_flip;   // druk = flip
+            if (btn_db_d & ~btn_db) wah_level <= wah_level + 2'd1;  // druk = trapje (wrapt)
         end
     end
 
-    // Effectieve wah-stand: DIP-niveau XOR knop-flipflop. Zowel de DIP omzetten
-    // als de knop indrukken wisselt dus de wah; na reset geldt de DIP-stand.
-    wire wah_on = wah_s[1] ^ wah_flip;
+    // Effectief niveau: de DIP (E9) is master-schakelaar — laag = geforceerd uit.
+    // Hoog (default via pull-up): de T2-knop bepaalt het niveau.
+    wire [1:0] eff_level = wah_s[1] ? wah_level : 2'd0;
+
+    // Per-niveau parameters: open-cutoff (aanslag), eind-cutoff, sweep-stap
+    // (per 64 samples; ≈ (open-eind)/375 voor een sweep van ~0.5 s), k, drive.
+    reg signed [31:0] wah_g_open, wah_g_end, wah_g_step, wah_k, wah_drive;
+    always @(*) begin
+        case (eff_level)
+            2'd1: begin  // licht: smalle sweep, milde resonantie
+                wah_g_open = 32'h000191F6;  // ~1500 Hz
+                wah_g_end  = 32'h00005067;  // ~300 Hz
+                wah_g_step = 32'h000000DC;
+                wah_k      = 32'h000C0000;  // 0.75
+                wah_drive  = 32'h00200000;  // 2.0
+            end
+            2'd2: begin  // medium: ≈ het oude wah-geluid, iets meer drive
+                wah_g_open = 32'h000322F5;  // ~3000 Hz
+                wah_g_end  = 32'h00005067;  // ~300 Hz
+                wah_g_step = 32'h000001EF;
+                wah_k      = 32'h000A0000;  // 0.625
+                wah_drive  = 32'h00280000;  // 2.5
+            end
+            2'd3: begin  // dik: brede sweep, hoge resonantie, harde drive
+                wah_g_open = 32'h00042D45;  // ~4000 Hz
+                wah_g_end  = 32'h0000359E;  // ~200 Hz
+                wah_g_step = 32'h000002B5;
+                wah_k      = 32'h00060000;  // 0.375 (scream, tanh begrenst)
+                wah_drive  = 32'h00300000;  // 3.0
+            end
+            default: begin  // 0 = uit: statische cutoff, neutraal
+                wah_g_open = G_FIXED;
+                wah_g_end  = G_FIXED;
+                wah_g_step = 32'sd0;
+                wah_k      = 32'h000A0000;  // 0.625
+                wah_drive  = 32'h00200000;  // 2.0
+            end
+        endcase
+    end
 
     always @(posedge sys_clk or posedge rst) begin
         if (rst) begin
             env_timer   <= 0;
-            filter_g    <= G_CLOSED;
-            // k is de DEMPINGSfactor (q=1/Q): LAGER = meer resonantie.
-            // ~0.25 = hoge resonantie, tanh begrenst de zelfoscillatie (scream).
-            filter_k    <= 32'h000A0000;  // ~0.625 — resonanter (meer "vocale" wah)
+            filter_g    <= G_FIXED;
             filter_mode <= 1'b0;          // Low-pass
         end else if (sample_clk_tick) begin
             if (trigger_pulse) begin
-                // Nieuwe noot: wah aan → open filter & sweep; wah uit → vaste cutoff
+                // Nieuwe noot: open naar het niveau-afhankelijke startpunt
+                // (niveau 0: wah_g_open = G_FIXED → statisch, geen sweep)
                 env_timer <= 0;
-                filter_g  <= wah_on ? G_OPEN : G_FIXED;
-            end else if (wah_on) begin
+                filter_g  <= wah_g_open;
+            end else if (eff_level != 2'd0) begin
                 if (env_timer < 16'd24000) begin
                     env_timer <= env_timer + 16'd1;
-
-                    // Elke 64 samples: stapje dichter naar G_MEDIUM
-                    // (G_OPEN - G_MEDIUM)/(24000/64) = 185486/375 ≈ 0x1EF
-                    if (env_timer[5:0] == 6'd0 && filter_g > (G_MEDIUM + 32'h1EF)) begin
-                        filter_g <= filter_g - 32'h000001EF;
-                    end
+                    // Elke 64 samples een stapje richting wah_g_end (~0.5 s sweep)
+                    if (env_timer[5:0] == 6'd0 && filter_g > wah_g_end + wah_g_step)
+                        filter_g <= filter_g - wah_g_step;
                 end
             end else begin
                 filter_g <= G_FIXED;       // wah uit: statische cutoff
@@ -312,9 +340,9 @@ module synth_top #(
     // ========================================================================
     // MS-20 STATE-VARIABLE FILTER  (demo-envelope vs SPI-CV's via mux)
     // ========================================================================
-    wire signed [31:0] eff_g     = demo_eff ? filter_g     : g_spi;
-    wire signed [31:0] eff_k     = demo_eff ? filter_k     : k_spi;
-    wire signed [31:0] eff_drive = demo_eff ? filter_drive : drive_spi;
+    wire signed [31:0] eff_g     = demo_eff ? filter_g  : g_spi;
+    wire signed [31:0] eff_k     = demo_eff ? wah_k     : k_spi;
+    wire signed [31:0] eff_drive = demo_eff ? wah_drive : drive_spi;
 
     wire signed [31:0] filter_out;
 
