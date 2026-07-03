@@ -23,6 +23,7 @@ module synth_top_spi_tb();
         .demo_mode(1'b0),               // SPI-gedreven
         .key_mute_n(1'b1),              // niet ingedrukt
         .wah_sw(1'b1),                  // wah aan
+        .wah_btn_n(1'b1),               // knop niet ingedrukt
         .led(led),
         .hp_bck(), .hp_ws(), .hp_din(), .pa_en()
     );

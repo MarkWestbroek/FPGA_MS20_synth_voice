@@ -7,6 +7,8 @@
 //   3. wah weer aan       → noot 4 moet wéér met G_OPEN starten
 //   4. reset-puls (T3)    → demo herstart; eerste noot ná reset weer G_OPEN
 //                           en er komt weer geluid uit de string
+//   5. drukknop (T2)      → één druk flipt de wah UIT (noot start op G_FIXED),
+//                           nóg een druk flipt hem weer AAN (noot start open)
 // Zelf-controlerend: PASS/FAIL per stap + eindoordeel.
 // ============================================================================
 
@@ -16,7 +18,8 @@ module wah_toggle_tb();
 
     reg sys_clk = 0; always #10 sys_clk = ~sys_clk;   // 50 MHz
     reg sys_rst_n = 0;
-    reg wah_sw   = 1;                                  // start: wah aan
+    reg wah_sw    = 1;                                 // start: wah aan (DIP)
+    reg wah_btn_n = 1;                                 // drukknop idle (pull-up)
 
     wire led;
 
@@ -26,6 +29,7 @@ module wah_toggle_tb();
         .demo_mode(1'b1),
         .key_mute_n(1'b1),
         .wah_sw(wah_sw),
+        .wah_btn_n(wah_btn_n),
         .led(led),
         .hp_bck(), .hp_ws(), .hp_din(), .pa_en()
     );
@@ -65,6 +69,8 @@ module wah_toggle_tb();
                     3: check(g_smp == G_FIXED,   "noot 3 (wah uit): statisch G_FIXED");
                     4: check(g_is_open(g_smp),   "noot 4 (wah WEER aan): start open");
                     5: check(g_is_open(g_smp),   "noot 5 (na reset-knop): start open");
+                    6: check(g_smp == G_FIXED,   "noot 6 (T2 gedrukt): wah geflipt UIT");
+                    7: check(g_is_open(g_smp),   "noot 7 (T2 nogmaals): wah geflipt AAN");
                     default: ;
                 endcase
             end
@@ -102,7 +108,18 @@ module wah_toggle_tb();
         #500_000_000;            // 0.5 s na reset: noot 5 + string-audio meten
 
         check(str_peak_post > 0, "audio (string) aanwezig na reset");
-        check(trig_n >= 5,       "5 triggers gezien (demo herstart na reset)");
+
+        // drukknop T2: één druk (100 ms, ruim boven de debounce) → wah UIT
+        $display("--- T2 druk 1 @ %0d ms", $time/1000000);
+        wah_btn_n = 0; #100_000_000; wah_btn_n = 1;
+        #1_400_000_000;          // noot 6 @ ~6.6 s (1.5 s na herstart-noot 5)
+
+        // en nóg een druk → wah weer AAN
+        $display("--- T2 druk 2 @ %0d ms", $time/1000000);
+        wah_btn_n = 0; #100_000_000; wah_btn_n = 1;
+        #1_500_000_000;          // noot 7 @ ~8.1 s
+
+        check(trig_n >= 7,       "7 triggers gezien");
 
         $display("\n==== WAH TOGGLE TEST: %0d passed, %0d failed ====", pass, fail);
         if (fail == 0) $display("ALLE TESTS GESLAAGD");

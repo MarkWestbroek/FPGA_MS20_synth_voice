@@ -34,7 +34,8 @@ module synth_top #(
 
     input  wire         demo_mode,    // 1 = interne demo-sequencer, 0 = SPI-CV's
     input  wire         key_mute_n,   // DIP-switch (niveau): audio aan/uit
-    input  wire         wah_sw,       // schakelaar (niveau): wah-envelope aan/uit (hoog=aan)
+    input  wire         wah_sw,       // DIP-switch (niveau): wah-envelope aan/uit (hoog=aan)
+    input  wire         wah_btn_n,    // drukknop (active-low): elke druk flipt de wah
 
     output wire         led,          // Status LED
 
@@ -250,10 +251,34 @@ module synth_top #(
 
     // wah-schakelaar synchroniseren (schoon niveau, 2-FF). Default hoog = wah aan.
     reg [1:0] wah_s;
-    wire wah_on = wah_s[1];
     always @(posedge sys_clk or posedge rst)
         if (rst) wah_s <= 2'b11;
         else     wah_s <= {wah_s[0], wah_sw};
+
+    // wah-drukknop: synchroniseren + debouncen (~39ms @27MHz, zoals key_mute_n);
+    // elke druk (dalende flank op het gedebouncede niveau) flipt wah_flip.
+    reg [1:0]  btn_s;
+    reg [19:0] btn_db_cnt;
+    reg        btn_db, btn_db_d, wah_flip;
+    always @(posedge sys_clk or posedge rst) begin
+        if (rst) begin
+            btn_s <= 2'b11; btn_db_cnt <= 20'd0;
+            btn_db <= 1'b1; btn_db_d <= 1'b1; wah_flip <= 1'b0;
+        end else begin
+            btn_s <= {btn_s[0], wah_btn_n};
+            if (btn_s[1] == btn_db) btn_db_cnt <= 20'd0;
+            else begin
+                btn_db_cnt <= btn_db_cnt + 20'd1;
+                if (&btn_db_cnt) btn_db <= btn_s[1];
+            end
+            btn_db_d <= btn_db;
+            if (btn_db_d & ~btn_db) wah_flip <= ~wah_flip;   // druk = flip
+        end
+    end
+
+    // Effectieve wah-stand: DIP-niveau XOR knop-flipflop. Zowel de DIP omzetten
+    // als de knop indrukken wisselt dus de wah; na reset geldt de DIP-stand.
+    wire wah_on = wah_s[1] ^ wah_flip;
 
     always @(posedge sys_clk or posedge rst) begin
         if (rst) begin
