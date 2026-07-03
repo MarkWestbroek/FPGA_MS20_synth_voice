@@ -110,11 +110,18 @@ module ks_string #(
                 end
 
                 // ------------------------------------------------------------
-                // FILL: Vul de hele delay-lijn met LFSR-ruis
+                // FILL: Vul de VOLLEDIGE delay-lijn (MAX_DELAY) met LFSR-ruis
+                //
+                // Bewust de hele lijn, niet alleen `period` posities: als de
+                // pitch later omlaag gaat (langere period) zónder nieuwe
+                // trigger, leest de pointer anders cellen die nooit beschreven
+                // zijn (x'en in sim, stale data op hardware). De extra vulling
+                // kost max MAX_DELAY sys_clk-cycles (~76 µs @27 MHz) per
+                // aanslag — een paar gemiste audio-ticks, onhoorbaar.
                 // ------------------------------------------------------------
                 S_FILL: begin
                     delay_line[fill_cnt] <= noise_sample;
-                    if (fill_cnt >= period - 1) begin
+                    if (fill_cnt == MAX_DELAY-1) begin
                         state       <= S_IDLE;
                         initialized <= 1;
                         ptr         <= 0;
