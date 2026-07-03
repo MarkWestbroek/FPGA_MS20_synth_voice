@@ -125,7 +125,8 @@ module synth_top #(
     // ========================================================================
     wire [7:0] spi_rx_byte, spi_tx_byte;
     wire       spi_rx_valid, spi_cs_active, spi_tx_load;
-    wire signed [15:0] pitch_cv, cutoff_cv, reson_cv, drive_cv;
+    // dCV's: u16 offset-binary (0x0000=min, 0xFFFF=max), zie doc/PITCH_CV.md
+    wire [15:0] pitch_cv, cutoff_cv, reson_cv, drive_cv;
     wire       spi_gate, spi_trigger;
 
     spi_slave u_spi_slave (
@@ -149,8 +150,7 @@ module synth_top #(
     //   (0x0000 = range-min, 0xFFFF ≈ range-max).
     // Default-config: 0..10 V, 1 V/oct, 0 V = MIDI-noot 0 → 10 octaven over 0..0xFFFF.
     // Bij V/oct is de code lineair in semitonen:  note = (code * 120) >> 16.
-    wire [15:0] pitch_code = pitch_cv;                 // ruwe 16 bits, unsigned
-    wire [23:0] note_calc  = pitch_code * 16'd120;     // 0 .. ~7.86M
+    wire [23:0] note_calc  = pitch_cv * 16'd120;       // 0 .. ~7.86M
     wire [6:0]  spi_note   = note_calc[22:16];         // /65536 → 0..119 (past in 7 bits)
     wire [10:0] spi_period;
     note_to_period u_n2p (.clk(sys_clk), .note(spi_note), .period(spi_period));

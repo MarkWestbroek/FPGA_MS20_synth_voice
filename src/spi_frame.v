@@ -14,12 +14,12 @@
 //
 // Ondersteunde opcodes (instrument-subset):
 //   0x00 Ping     → pong_req puls (MISO-antwoord later)
-//   0x10 CvSet    payload: u16 channel, i16 value
+//   0x10 CvSet    payload: u16 channel, u16 value (dCV, offset-binary)
 //                   slot 0 → pitch_cv   slot 1 → cutoff_cv
 //                   slot 2 → reson_cv   slot 3 → drive_cv
 //   0x20 GateSet  payload: u16 channel, u8 on   → gate (+ trigger-puls bij 0→1)
 //
-// De ruwe i16-CV-waarden komen hier uit; synth_top mapt ze naar Q12.20 filter-
+// De ruwe u16-dCV-waarden komen hier uit; synth_top mapt ze naar Q12.20 filter-
 // parameters / KS-period (integratie-stap).
 // ============================================================================
 
@@ -34,11 +34,12 @@ module spi_frame (
     input  wire        rx_valid,
     input  wire        cs_active,
 
-    // gedecodeerde CV/gate (i16, −32768..32767 = −1.0..+1.0)
-    output reg signed [15:0] pitch_cv,
-    output reg signed [15:0] cutoff_cv,
-    output reg signed [15:0] reson_cv,
-    output reg signed [15:0] drive_cv,
+    // gedecodeerde CV/gate — dCV: u16 offset-binary, 0x0000 = range-min,
+    // 0xFFFF = range-max (zie doc/PITCH_CV.md / MusicBrain ADR 0014)
+    output reg [15:0] pitch_cv,
+    output reg [15:0] cutoff_cv,
+    output reg [15:0] reson_cv,
+    output reg [15:0] drive_cv,
     output reg               gate,
     output reg               trigger,      // 1-klok puls bij gate 0→1
     output reg               pong_req,     // 1-klok puls bij Ping
@@ -104,7 +105,7 @@ module spi_frame (
     // payload-helpers
     wire [15:0] ch     = {payload[0], payload[1]};
     wire [7:0]  slot   = payload[1];                // laag byte = slotId
-    wire signed [15:0] val = {payload[2], payload[3]};
+    wire [15:0] val    = {payload[2], payload[3]};  // dCV, big-endian
 
     integer j;
 
@@ -116,10 +117,10 @@ module spi_frame (
             len       <= 8'd0;
             pidx      <= 8'd0;
             crc_hi    <= 8'd0;
-            pitch_cv  <= 16'sd0;
-            cutoff_cv <= 16'sd0;
-            reson_cv  <= 16'sd0;
-            drive_cv  <= 16'sd0;
+            pitch_cv  <= 16'd0;
+            cutoff_cv <= 16'd0;
+            reson_cv  <= 16'd0;
+            drive_cv  <= 16'd0;
             gate      <= 1'b0;
             trigger   <= 1'b0;
             pong_req  <= 1'b0;

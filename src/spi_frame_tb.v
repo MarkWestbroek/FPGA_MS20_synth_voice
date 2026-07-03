@@ -19,7 +19,7 @@ module spi_frame_tb();
     wire [7:0] rx_byte; wire rx_valid, cs_active;
     wire [7:0] tx_byte; wire tx_load;
 
-    wire signed [15:0] pitch_cv, cutoff_cv, reson_cv, drive_cv;
+    wire [15:0] pitch_cv, cutoff_cv, reson_cv, drive_cv;   // u16 dCV (offset-binary)
     wire gate, trigger, pong_req, frame_ok;
 
     spi_slave u_slave (
@@ -125,14 +125,14 @@ module spi_frame_tb();
         #100; rst = 0; #100;
 
         send_cvset(8'd1, 16'h1234, 1'b0);
-        check(cutoff_cv == 16'sh1234, "CvSet cutoff == 0x1234");
-        check(ok_seen,                "CvSet frame_ok gepulst");
+        check(cutoff_cv == 16'h1234, "CvSet cutoff == 0x1234");
+        check(ok_seen,               "CvSet frame_ok gepulst");
 
-        send_cvset(8'd0, -16'sd256, 1'b0);
-        check(pitch_cv == -16'sd256, "CvSet pitch == -256");
+        send_cvset(8'd0, 16'hFF00, 1'b0);
+        check(pitch_cv == 16'hFF00, "CvSet pitch == 0xFF00 (hoge dCV)");
 
         send_cvset(8'd2, 16'h0040, 1'b0);
-        check(reson_cv == 16'sh0040, "CvSet reson == 0x0040");
+        check(reson_cv == 16'h0040, "CvSet reson == 0x0040");
 
         trig_seen = 0;
         send_gateset(8'd0, 1'b1);
@@ -144,7 +144,7 @@ module spi_frame_tb();
 
         ok_seen = 0;
         send_cvset(8'd1, 16'h7FFF, 1'b1);
-        check(cutoff_cv == 16'sh1234, "Foute CRC: cutoff ongewijzigd");
+        check(cutoff_cv == 16'h1234, "Foute CRC: cutoff ongewijzigd");
         check(!ok_seen,               "Foute CRC: geen frame_ok");
 
         // Ping -> Pong op MISO. Eerst de Ping, dan een read-transactie van 6 bytes.
