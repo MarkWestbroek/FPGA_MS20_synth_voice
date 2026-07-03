@@ -59,11 +59,23 @@ module ms20_filter #(
     reg signed [31:0] in_held;// zero-order-hold input over de sub-stappen
 
     // ========================================================================
+    // SATURATIE-grenzen voor de integrators (±16.0 in Q12.20).
+    // De tanh begrenst alleen de feedback-term; bij extreme parameters (hoge
+    // drive, lage k, hoge g via SPI) kunnen bp/lp anders 32-bit wrappen →
+    // full-scale knal i.p.v. nette clipping. ±16 is ruim boven elk muzikaal
+    // signaal en ruim onder de Q12.20-limiet (±2048).
+    // ========================================================================
+    localparam signed [31:0] SAT_MAX =  32'sh00FFFFFF;   // +16.0 - 1 LSB
+    localparam signed [31:0] SAT_MIN = -32'sh01000000;   // -16.0
+
+    // ========================================================================
     // DRIVE: schaal bp vóór de tanh-LUT zodat de saturatie echt aanslaat
     //   bp_driven = drive * bp   (Q12.20 * Q12.20 -> >>>20)
+    // 44-bit breed gehouden (geen truncatie naar 32 bit): zo klopt de
+    // LUT-clamp hieronder óók als drive*bp buiten ±2048 zou komen.
     // ========================================================================
     wire signed [63:0] bp_drv_full = $signed(drive) * $signed(bp);
-    wire signed [31:0] bp_driven   = bp_drv_full >>> 20;
+    wire signed [43:0] bp_driven   = bp_drv_full[63:20];
 
     // ========================================================================
     // tanh BRAM-LUT — diode-saturatie. Adressering identiek aan gen_tables.py:
@@ -72,9 +84,10 @@ module ms20_filter #(
     localparam signed [31:0] X_MAX =  32'sd4194304;   // +4.0 in Q12.20
     localparam signed [31:0] X_MIN = -32'sd4194304;   // -4.0 in Q12.20
 
+    wire signed [43:0] lut_sum = bp_driven + X_MAX;   // 0 .. 0x7FFFFF binnen bereik
     wire [9:0] lut_addr = (bp_driven >= X_MAX) ? 10'd1023 :   // >= : grens niet naar 0 laten wrappen
                           (bp_driven <  X_MIN) ? 10'd0    :
-                          (bp_driven + X_MAX) >>> 13;
+                          lut_sum[22:13];
 
     wire signed [31:0] lut_tanh;   // tanh(drive*bp), 1 cycle latency
 
@@ -92,13 +105,17 @@ module ms20_filter #(
     wire signed [31:0] feedback      = prod_k >>> 20;
     wire signed [31:0] hp            = $signed(in_held) - $signed(lp) - $signed(feedback);
 
-    // bp_next = bp + g*hp
+    // bp_next = sat(bp + g*hp) — som breed uitgerekend, dan clampen op ±16.0
     wire signed [63:0] prod_g_hp     = $signed(g) * $signed(hp);
-    wire signed [31:0] bp_next       = $signed(bp) + $signed(prod_g_hp >>> 20);
+    wire signed [44:0] bp_sum        = $signed(bp) + $signed(prod_g_hp[63:20]);
+    wire signed [31:0] bp_next       = (bp_sum > SAT_MAX) ? SAT_MAX :
+                                       (bp_sum < SAT_MIN) ? SAT_MIN : bp_sum[31:0];
 
-    // lp_next = lp + g*bp_next
+    // lp_next = sat(lp + g*bp_next)
     wire signed [63:0] prod_g_bp     = $signed(g) * $signed(bp_next);
-    wire signed [31:0] lp_next       = $signed(lp) + $signed(prod_g_bp >>> 20);
+    wire signed [44:0] lp_sum        = $signed(lp) + $signed(prod_g_bp[63:20]);
+    wire signed [31:0] lp_next       = (lp_sum > SAT_MAX) ? SAT_MAX :
+                                       (lp_sum < SAT_MIN) ? SAT_MIN : lp_sum[31:0];
 
     // Geselecteerde output van deze sub-stap
     wire signed [31:0] sub_out       = (mode == 1'b1) ? hp : lp_next;
