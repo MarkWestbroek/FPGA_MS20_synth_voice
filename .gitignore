@@ -2,11 +2,13 @@
 impl/
 *.gprj.user
 
-# DSim simulation work
-dsim_work/
+# DSim simulation work (alle -work varianten)
+dsim_work*/
+dsim.manifest
 
 # Simulation output
 simulation_output.txt
+*_sim_output.txt
 *.vcd
 *.vcd.tgz
 
