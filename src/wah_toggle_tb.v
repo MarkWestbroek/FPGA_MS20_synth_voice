@@ -1,16 +1,19 @@
 // ============================================================================
-// WAH_TOGGLE_TB — regressietest voor de wah-niveaus (T2), DIP (E9) en reset
+// WAH_TOGGLE_TB — regressietest wah-niveaus (T2), DIP (E9) en reset — polyfoon
+//
+// De demo is nu een arpeggiator: elke 0,5 s triggert de volgende stem. De
+// wah-envelope loopt per stem in voice_engine (fg[v]); dit bench volgt elke
+// trigger en checkt 3 ticks later het envelope-startpunt van díe stem.
 //
 // Scenario (boot = niveau 2, medium):
-//   1. boot                → noot 1 & 2 starten open op het MEDIUM-startpunt
-//   2. DIP (E9) uit        → noot 3 statisch op G_FIXED (master-uit)
-//   3. DIP weer aan        → noot 4 weer open (niveau 2 onthouden)
-//   4. reset-puls (T3)     → demo herstart; noot 5 weer open (niveau 2 default)
-//   5. T2 druk 1 → niveau 3 (dik)    → noot 6 start op het DIK-startpunt
-//      T2 druk 2 → niveau 0 (uit)    → noot 7 statisch G_FIXED
-//      T2 druk 3 → niveau 1 (licht)  → noot 8 start op het LICHT-startpunt
-//      T2 druk 4 → niveau 2 (medium) → noot 9 weer medium (cyclus rond)
-// Zelf-controlerend: PASS/FAIL per stap + eindoordeel.
+//   trig 1..2  (lvl 2)  → open op L2-startpunt
+//   DIP uit    → trig 3 → statisch G_FIXED
+//   DIP aan    → trig 4 → weer open L2
+//   T2 ×1      → trig 5 → open L3 (dik)
+//   T2 ×2      → trig 6 → statisch (niveau 0 = uit)
+//   T2 ×3      → trig 7 → open L1 (licht)
+//   T2 ×4      → trig 8 → open L2 (cyclus rond)
+//   reset-puls → trig 9 → open L2 (default) + audio aanwezig
 // ============================================================================
 
 `timescale 1ns / 1ps
@@ -19,8 +22,8 @@ module wah_toggle_tb();
 
     reg sys_clk = 0; always #10 sys_clk = ~sys_clk;   // 50 MHz
     reg sys_rst_n = 0;
-    reg wah_sw    = 1;                                 // DIP: master aan
-    reg wah_btn_n = 1;                                 // drukknop idle (pull-up)
+    reg wah_sw    = 1;
+    reg wah_btn_n = 1;
 
     wire led;
 
@@ -35,11 +38,10 @@ module wah_toggle_tb();
         .hp_bck(), .hp_ws(), .hp_din(), .pa_en()
     );
 
-    // Startpunten per niveau (zelfde waarden als synth_top)
-    localparam [31:0] G_OPEN_L1 = 32'h000191F6;   // licht  ~1500 Hz
-    localparam [31:0] G_OPEN_L2 = 32'h000322F5;   // medium ~3000 Hz
-    localparam [31:0] G_OPEN_L3 = 32'h00042D45;   // dik    ~4000 Hz
-    localparam [31:0] G_FIXED   = 32'h0000D671;   // uit    ~800 Hz
+    localparam [31:0] G_OPEN_L1 = 32'h000191F6;
+    localparam [31:0] G_OPEN_L2 = 32'h000322F5;
+    localparam [31:0] G_OPEN_L3 = 32'h00042D45;
+    localparam [31:0] G_FIXED   = 32'h0000D671;
 
     integer pass = 0, fail = 0;
     task check(input cond, input [255:0] name);
@@ -49,42 +51,56 @@ module wah_toggle_tb();
         end
     endtask
 
-    // g "start open op niveau X": binnen 1-2 sweep-stappen van het startpunt
-    // (sample is 3 ticks na de trigger, dus 1 stap is er al af)
     function g_near(input [31:0] g, input [31:0] open_g);
         g_near = (g <= open_g) && (g >= open_g - 32'h1000);
     endfunction
 
-    // ---- trigger-monitor: sample filter_g 3 ticks na elke trigger_pulse ----
-    reg  [1:0]  tp = 2'b00;
-    integer     trig_n = 0;
-    reg  [31:0] g_smp;
+    function [2:0] enc8(input [7:0] b);
+        casez (b)
+            8'bzzzzzzz1: enc8 = 3'd0;
+            8'bzzzzzz10: enc8 = 3'd1;
+            8'bzzzzz100: enc8 = 3'd2;
+            8'bzzzz1000: enc8 = 3'd3;
+            8'bzzz10000: enc8 = 3'd4;
+            8'bzz100000: enc8 = 3'd5;
+            8'bz1000000: enc8 = 3'd6;
+            default:     enc8 = 3'd7;
+        endcase
+    endfunction
+
+    // ---- trigger-monitor: 3 ticks na een trigger fg[stem] van de engine lezen
+    reg [1:0]  tp = 2'b00;
+    reg [2:0]  tv = 3'd0;      // stem van de laatste trigger
+    integer    trig_n = 0;
+    reg [31:0] g_smp;
 
     always @(posedge sys_clk) begin
         if (uut.sample_clk_tick) begin
-            tp <= {tp[0], uut.trigger_pulse};
+            tp <= {tp[0], |uut.trig_demo};
+            if (|uut.trig_demo) tv <= enc8(uut.trig_demo);
             if (tp[1]) begin
                 trig_n = trig_n + 1;
-                g_smp  = uut.filter_g;
-                $display("TRIG %0d @%0d ms  lvl=%0d  g=%h", trig_n, $time/1000000,
-                         uut.eff_level, g_smp);
+                g_smp  = uut.u_engine.fg[tv];
+                $display("TRIG %0d @%0d ms  stem=%0d lvl=%0d  g=%h",
+                         trig_n, $time/1000000, tv, uut.eff_level, g_smp);
                 case (trig_n)
-                    1: check(g_near(g_smp, G_OPEN_L2), "noot 1 (boot, medium): start open L2");
-                    2: check(g_near(g_smp, G_OPEN_L2), "noot 2 (medium): start open L2");
-                    3: check(g_smp == G_FIXED,         "noot 3 (DIP uit): statisch G_FIXED");
-                    4: check(g_near(g_smp, G_OPEN_L2), "noot 4 (DIP weer aan): open L2");
-                    5: check(g_near(g_smp, G_OPEN_L2), "noot 5 (na reset): open L2 (default)");
-                    6: check(g_near(g_smp, G_OPEN_L3), "noot 6 (T2 x1, DIK): open L3");
-                    7: check(g_smp == G_FIXED,         "noot 7 (T2 x2, UIT): statisch G_FIXED");
-                    8: check(g_near(g_smp, G_OPEN_L1), "noot 8 (T2 x3, LICHT): open L1");
-                    9: check(g_near(g_smp, G_OPEN_L2), "noot 9 (T2 x4, MEDIUM): cyclus rond");
+                    1:  check(g_near(g_smp, G_OPEN_L2), "trig 1 (boot, medium): open L2");
+                    2:  check(g_near(g_smp, G_OPEN_L2), "trig 2 (medium): open L2");
+                    3:  check(g_near(g_smp, G_OPEN_L2), "trig 3 (nog medium): open L2");
+                    4:  check(g_smp == G_FIXED,         "trig 4 (DIP uit): G_FIXED");
+                    5:  check(g_near(g_smp, G_OPEN_L2), "trig 5 (DIP aan): open L2");
+                    6:  check(g_near(g_smp, G_OPEN_L3), "trig 6 (T2 x1, DIK): open L3");
+                    7:  check(g_smp == G_FIXED,         "trig 7 (T2 x2, UIT): G_FIXED");
+                    8:  check(g_near(g_smp, G_OPEN_L1), "trig 8 (T2 x3, LICHT): open L1");
+                    9:  check(g_near(g_smp, G_OPEN_L2), "trig 9 (T2 x4): cyclus rond");
+                    10: check(g_near(g_smp, G_OPEN_L2), "trig 10 (na reset): open L2");
                     default: ;
                 endcase
             end
         end
     end
 
-    // ---- geluid na reset: piek van de string na de reset-puls ----
+    // ---- geluid na reset ----
     reg [31:0] str_peak_post = 0;
     reg        post_reset = 0;
     wire signed [31:0] s_abs = (uut.string_out < 0) ? -uut.string_out : uut.string_out;
@@ -92,7 +108,6 @@ module wah_toggle_tb();
         if (post_reset && sys_rst_n && uut.sample_clk_tick && s_abs > str_peak_post)
             str_peak_post <= s_abs;
 
-    // drukknop T2: 100 ms ingedrukt (ruim boven de ~21 ms debounce @50 MHz)
     task press_t2;
         begin
             $display("--- T2 druk @ %0d ms", $time/1000000);
@@ -101,38 +116,30 @@ module wah_toggle_tb();
     endtask
 
     initial begin
-        // boot
         sys_rst_n = 0; #200; sys_rst_n = 1;
 
-        // noot 1 (0..1.5s) en noot 2 (1.5..3.0s) op niveau 2
-        #2_000_000_000;          // t = 2.0 s (midden noot 2)
-        wah_sw = 0;              // DIP uit
-        $display("--- DIP UIT @ %0d ms", $time/1000000);
+        // trig 1 @0 en trig 2 @0.5s op niveau 2
+        #1_250_000_000;          // t=1.25s
+        wah_sw = 0;  $display("--- DIP UIT @ %0d ms", $time/1000000);
+        #500_000_000;            // trig 3 @1.5s (uit); t=1.75s
+        wah_sw = 1;  $display("--- DIP AAN @ %0d ms", $time/1000000);
+        #500_000_000;            // trig 4 @2.0s; t=2.25s
+        press_t2;                // → niveau 3
+        #400_000_000;            // trig 5 @2.5s; t=2.75s
+        press_t2;                // → niveau 0
+        #400_000_000;            // trig 6 @3.0s; t=3.25s
+        press_t2;                // → niveau 1
+        #400_000_000;            // trig 7 @3.5s; t=3.75s
+        press_t2;                // → niveau 2
+        #400_000_000;            // trig 8 @4.0s; t=4.25s
 
-        #1_500_000_000;          // t = 3.5 s (noot 3 om 3.0 s gestart, master-uit)
-        wah_sw = 1;              // DIP weer aan
-        $display("--- DIP AAN @ %0d ms", $time/1000000);
-
-        #1_600_000_000;          // t = 5.1 s (noot 4 om 4.5 s gestart)
-
-        // reset-knop (T3)
         $display("--- RESET-puls @ %0d ms", $time/1000000);
         sys_rst_n = 0; #10_000; sys_rst_n = 1;
         post_reset = 1;
+        #550_000_000;            // trig 9 direct na reset; audio meten
 
-        #500_000_000;            // t = 5.6 s: noot 5 (om 5.1 s) gecheckt
-
-        press_t2;                // niveau 2 → 3
-        #1_400_000_000;          // t = 7.1 s (noot 6 om 6.6 s: dik)
-        press_t2;                // niveau 3 → 0
-        #1_400_000_000;          // t = 8.6 s (noot 7 om 8.1 s: uit)
-        press_t2;                // niveau 0 → 1
-        #1_400_000_000;          // t = 10.1 s (noot 8 om 9.6 s: licht)
-        press_t2;                // niveau 1 → 2
-        #1_500_000_000;          // t = 11.7 s (noot 9 om 11.1 s: medium)
-
-        check(str_peak_post > 0, "audio (string) aanwezig na reset");
-        check(trig_n >= 9,       "9 triggers gezien");
+        check(str_peak_post > 0, "audio (string-mix) aanwezig na reset");
+        check(trig_n >= 10,      "10 triggers gezien");
 
         $display("\n==== WAH TOGGLE TEST: %0d passed, %0d failed ====", pass, fail);
         if (fail == 0) $display("ALLE TESTS GESLAAGD");

@@ -12,15 +12,17 @@
 // we kijken alleen naar het lage byte van `channel` (= slotId) om te bepalen welk
 // voice-parameter een CvSet/GateSet aanstuurt.
 //
-// Ondersteunde opcodes (instrument-subset):
-//   0x00 Ping     → pong_req puls (MISO-antwoord later)
+// Ondersteunde opcodes (instrument-subset, 8 stemmen):
+//   0x00 Ping     → pong_req puls (Pong-antwoord op MISO)
 //   0x10 CvSet    payload: u16 channel, u16 value (dCV, offset-binary)
-//                   slot 0 → pitch_cv   slot 1 → cutoff_cv
-//                   slot 2 → reson_cv   slot 3 → drive_cv
-//   0x20 GateSet  payload: u16 channel, u8 on   → gate (+ trigger-puls bij 0→1)
+//                   slotId = voice*4 + param  (voices 0..7 → slots 0..31)
+//                   param: 0=pitch, 1=cutoff, 2=reson, 3=drive
+//                   (stem 0 = slots 0..3: backwards-compatible met mono)
+//   0x20 GateSet  payload: u16 channel, u8 on
+//                   slotId = voice (0..7) → gate[v] (+ trigger[v]-puls bij 0→1)
 //
-// De ruwe u16-dCV-waarden komen hier uit; synth_top mapt ze naar Q12.20 filter-
-// parameters / KS-period (integratie-stap).
+// CV-waarden komen er als schrijf-poort uit (cv_we/voice/param/val); synth_top
+// houdt de per-stem arrays bij en mapt naar Q12.20 / KS-period.
 // ============================================================================
 
 `timescale 1ns / 1ps
@@ -34,16 +36,16 @@ module spi_frame (
     input  wire        rx_valid,
     input  wire        cs_active,
 
-    // gedecodeerde CV/gate — dCV: u16 offset-binary, 0x0000 = range-min,
+    // CV-schrijfpoort — dCV: u16 offset-binary, 0x0000 = range-min,
     // 0xFFFF = range-max (zie doc/PITCH_CV.md / MusicBrain ADR 0014)
-    output reg [15:0] pitch_cv,
-    output reg [15:0] cutoff_cv,
-    output reg [15:0] reson_cv,
-    output reg [15:0] drive_cv,
-    output reg               gate,
-    output reg               trigger,      // 1-klok puls bij gate 0→1
-    output reg               pong_req,     // 1-klok puls bij Ping
-    output reg               frame_ok,     // 1-klok puls bij geldig (CRC-correct) frame
+    output reg        cv_we,        // 1-klok puls: cv_voice/cv_param/cv_val geldig
+    output reg [2:0]  cv_voice,     // stem 0..7
+    output reg [1:0]  cv_param,     // 0=pitch, 1=cutoff, 2=reson, 3=drive
+    output reg [15:0] cv_val,
+    output reg [7:0]  gate,         // gate-niveau per stem
+    output reg [7:0]  trigger,      // 1-klok puls per stem bij gate 0→1
+    output reg        pong_req,     // 1-klok puls bij Ping
+    output reg        frame_ok,     // 1-klok puls bij geldig (CRC-correct) frame
 
     // MISO-zendpad naar spi_slave: na een Ping wordt het Pong-frame uitgeschoven
     output wire [7:0]        tx_byte,
@@ -117,12 +119,12 @@ module spi_frame (
             len       <= 8'd0;
             pidx      <= 8'd0;
             crc_hi    <= 8'd0;
-            pitch_cv  <= 16'd0;
-            cutoff_cv <= 16'd0;
-            reson_cv  <= 16'd0;
-            drive_cv  <= 16'd0;
-            gate      <= 1'b0;
-            trigger   <= 1'b0;
+            cv_we     <= 1'b0;
+            cv_voice  <= 3'd0;
+            cv_param  <= 2'd0;
+            cv_val    <= 16'd0;
+            gate      <= 8'd0;
+            trigger   <= 8'd0;
             pong_req  <= 1'b0;
             frame_ok  <= 1'b0;
             pong_pending <= 1'b0;
@@ -130,7 +132,8 @@ module spi_frame (
             for (j = 0; j < 8; j = j + 1) payload[j] <= 8'd0;
         end else begin
             // 1-klok pulsen default laag
-            trigger  <= 1'b0;
+            cv_we    <= 1'b0;
+            trigger  <= 8'd0;
             pong_req <= 1'b0;
             frame_ok <= 1'b0;
 
@@ -200,19 +203,22 @@ module spi_frame (
                                 end
 
                                 OP_CVSET: begin
-                                    case (slot)
-                                        8'd0: pitch_cv  <= val;
-                                        8'd1: cutoff_cv <= val;
-                                        8'd2: reson_cv  <= val;
-                                        8'd3: drive_cv  <= val;
-                                        default: ;
-                                    endcase
+                                    // slot = voice*4 + param; alleen slots 0..31
+                                    if (slot < 8'd32) begin
+                                        cv_we    <= 1'b1;
+                                        cv_voice <= slot[4:2];
+                                        cv_param <= slot[1:0];
+                                        cv_val   <= val;
+                                    end
                                 end
 
                                 OP_GATESET: begin
-                                    // payload[2] = on
-                                    if (payload[2][0] && !gate) trigger <= 1'b1;
-                                    gate <= payload[2][0];
+                                    // slot = voice (0..7); payload[2] = on
+                                    if (slot < 8'd8) begin
+                                        if (payload[2][0] && !gate[slot[2:0]])
+                                            trigger[slot[2:0]] <= 1'b1;
+                                        gate[slot[2:0]] <= payload[2][0];
+                                    end
                                 end
 
                                 default: ;   // onbekende opcode: negeren

@@ -2,8 +2,9 @@
 // SPI_FRAME_TB — verifieert spi_slave + spi_frame (MusicBrain frame v1)
 //
 // Bouwt echte frames (incl. CRC-16/CCITT-FALSE) en stuurt ze als SPI mode-0
-// master. Controleert CvSet/GateSet-decodering, trigger-puls, CRC-rejectie, en
-// dat een Ping een Pong-frame op MISO oplevert. Zelf-controlerend.
+// master. Controleert de per-stem CvSet-schrijfpoort (slot = voice*4+param),
+// GateSet per stem (gate-vector + trigger-puls), CRC-rejectie, en dat een
+// Ping een Pong-frame op MISO oplevert. Zelf-controlerend.
 // ============================================================================
 
 `timescale 1ns / 1ps
@@ -19,8 +20,12 @@ module spi_frame_tb();
     wire [7:0] rx_byte; wire rx_valid, cs_active;
     wire [7:0] tx_byte; wire tx_load;
 
-    wire [15:0] pitch_cv, cutoff_cv, reson_cv, drive_cv;   // u16 dCV (offset-binary)
-    wire gate, trigger, pong_req, frame_ok;
+    wire        cv_we;
+    wire [2:0]  cv_voice;
+    wire [1:0]  cv_param;
+    wire [15:0] cv_val;
+    wire [7:0]  gate, trigger;
+    wire pong_req, frame_ok;
 
     spi_slave u_slave (
         .clk(clk), .rst(rst), .sclk(sclk), .mosi(mosi), .miso(miso), .cs_n(cs_n),
@@ -31,8 +36,8 @@ module spi_frame_tb();
     spi_frame u_frame (
         .clk(clk), .rst(rst),
         .rx_byte(rx_byte), .rx_valid(rx_valid), .cs_active(cs_active),
-        .pitch_cv(pitch_cv), .cutoff_cv(cutoff_cv), .reson_cv(reson_cv),
-        .drive_cv(drive_cv), .gate(gate), .trigger(trigger),
+        .cv_we(cv_we), .cv_voice(cv_voice), .cv_param(cv_param), .cv_val(cv_val),
+        .gate(gate), .trigger(trigger),
         .pong_req(pong_req), .frame_ok(frame_ok),
         .tx_byte(tx_byte), .tx_load(tx_load)
     );
@@ -41,9 +46,16 @@ module spi_frame_tb();
     integer pass = 0, fail = 0;
     reg [15:0] tb_crc;
 
-    reg trig_seen = 0, ok_seen = 0, pong_seen = 0;
+    // vang CV-schrijfacties per slot (slot = {voice, param})
+    reg [15:0] cvv [0:31];
+    integer ci;
+    initial for (ci = 0; ci < 32; ci = ci + 1) cvv[ci] = 16'hDEAD;
+    always @(posedge clk) if (cv_we) cvv[{cv_voice, cv_param}] <= cv_val;
+
+    reg [7:0] trig_seen = 0;
+    reg ok_seen = 0, pong_seen = 0;
     always @(posedge clk) begin
-        if (trigger)  trig_seen <= 1;
+        trig_seen <= trig_seen | trigger;
         if (frame_ok) ok_seen   <= 1;
         if (pong_req) pong_seen <= 1;
     end
@@ -124,30 +136,44 @@ module spi_frame_tb();
     initial begin
         #100; rst = 0; #100;
 
+        // voice 0 (slots 0..3, backwards-compatible met mono)
         send_cvset(8'd1, 16'h1234, 1'b0);
-        check(cutoff_cv == 16'h1234, "CvSet cutoff == 0x1234");
-        check(ok_seen,               "CvSet frame_ok gepulst");
+        check(cvv[1] == 16'h1234,   "CvSet v0 cutoff (slot 1) == 0x1234");
+        check(ok_seen,              "CvSet frame_ok gepulst");
 
         send_cvset(8'd0, 16'hFF00, 1'b0);
-        check(pitch_cv == 16'hFF00, "CvSet pitch == 0xFF00 (hoge dCV)");
+        check(cvv[0] == 16'hFF00,   "CvSet v0 pitch (slot 0) == 0xFF00");
 
-        send_cvset(8'd2, 16'h0040, 1'b0);
-        check(reson_cv == 16'h0040, "CvSet reson == 0x0040");
+        // voice 3, param 2 (reson) → slot 14
+        send_cvset(8'd14, 16'h0040, 1'b0);
+        check(cvv[14] == 16'h0040,  "CvSet v3 reson (slot 14) == 0x0040");
+        check(cvv[2] == 16'hDEAD,   "v0 reson onaangeraakt (per-stem adressering)");
 
+        // slot buiten bereik: genegeerd
+        send_cvset(8'd40, 16'hBEEF, 1'b0);
+        check(cvv[8] == 16'hDEAD,   "slot 40 (buiten 0..31) genegeerd");
+
+        // gates per stem
         trig_seen = 0;
         send_gateset(8'd0, 1'b1);
-        check(gate == 1'b1,  "GateSet gate == 1");
-        check(trig_seen,     "GateSet trigger gepulst");
+        check(gate[0] == 1'b1,      "GateSet v0: gate[0] == 1");
+        check(trig_seen[0],         "GateSet v0: trigger[0] gepulst");
+
+        send_gateset(8'd5, 1'b1);
+        check(gate[5] == 1'b1,      "GateSet v5: gate[5] == 1");
+        check(trig_seen[5],         "GateSet v5: trigger[5] gepulst");
+        check(gate[0] == 1'b1,      "gate[0] nog aan (onafhankelijk)");
 
         send_gateset(8'd0, 1'b0);
-        check(gate == 1'b0,  "GateSet gate == 0");
+        check(gate[0] == 1'b0,      "GateSet v0: gate[0] == 0");
 
+        // foute CRC: stil droppen
         ok_seen = 0;
         send_cvset(8'd1, 16'h7FFF, 1'b1);
-        check(cutoff_cv == 16'h1234, "Foute CRC: cutoff ongewijzigd");
-        check(!ok_seen,               "Foute CRC: geen frame_ok");
+        check(cvv[1] == 16'h1234,   "Foute CRC: cutoff ongewijzigd");
+        check(!ok_seen,             "Foute CRC: geen frame_ok");
 
-        // Ping -> Pong op MISO. Eerst de Ping, dan een read-transactie van 6 bytes.
+        // Ping -> Pong op MISO
         pong_seen = 0;
         send_ping;
         check(pong_seen, "Ping gedecodeerd (pong_req)");

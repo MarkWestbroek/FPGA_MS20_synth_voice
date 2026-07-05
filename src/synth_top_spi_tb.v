@@ -1,9 +1,10 @@
 // ============================================================================
-// SYNTH_TOP_SPI_TB — end-to-end test: SPI-frames → audio
+// SYNTH_TOP_SPI_TB — end-to-end test: SPI-frames → audio (2 stemmen)
 //
-// Stuurt MusicBrain-frames (cutoff/reson/drive-CV + pitch-CV + GateSet) naar
-// synth_top in SPI-mode (demo_mode=0), rendert ~1.5 s audio (CSV via $display)
-// en controleert dat er daadwerkelijk geluid uit het filter komt.
+// Stuurt MusicBrain-frames naar synth_top in SPI-mode (demo_mode=0):
+// stem 0 (slots 0..3) krijgt A1, stem 1 (slots 4..7) krijgt D2 (0,3 s later).
+// Rendert ~1.5 s audio (CSV via $display) en controleert dat beide stemmen
+// daadwerkelijk klinken.
 // ============================================================================
 
 `timescale 1ns / 1ps
@@ -76,8 +77,9 @@ module synth_top_spi_tb();
         end
     endtask
 
-    // peak-tracker om te bewijzen dat er geluid is
+    // peak-trackers: mix + per stem (bewijst dat béide stemmen klinken)
     reg signed [31:0] filt_peak = 0, str_peak = 0;
+    reg [31:0] v0_peak = 0, v1_peak = 0;
     function signed [31:0] absval(input signed [31:0] x);
         absval = (x < 0) ? -x : x;
     endfunction
@@ -85,6 +87,10 @@ module synth_top_spi_tb();
         if (uut.sample_clk_tick) begin
             if (absval(audio_out)       > filt_peak) filt_peak <= absval(audio_out);
             if (absval(uut.string_out)  > str_peak)  str_peak  <= absval(uut.string_out);
+            if (absval(uut.u_engine.lastout[0]) > v0_peak)
+                v0_peak <= absval(uut.u_engine.lastout[0]);
+            if (absval(uut.u_engine.lastout[1]) > v1_peak)
+                v1_peak <= absval(uut.u_engine.lastout[1]);
         end
     end
 
@@ -96,26 +102,32 @@ module synth_top_spi_tb();
     initial begin
         sys_rst_n = 0; #200; sys_rst_n = 1; #200;
 
-        // Filterparameters via CV: cutoff ~1500Hz, hoge resonantie, flinke drive
-        send_cvset(8'd1, 16'h323E);   // cutoff → g ≈ 0x191F0
-        send_cvset(8'd2, 16'h6000);   // reson  → k ≈ 0.25 (scream)
-        send_cvset(8'd3, 16'h7FFF);   // drive  → ≈ 3.0
-
-        // Pitch-dCV voor noot 33 (A1): bin-midden = round(33.5*65536/120) = 18295 (0x4777)
-        // (0..10V, 1 V/oct, 0V = MIDI 0; note = code*120>>16 = 33)
+        // ---- stem 0 (slots 0..3): A1, cutoff ~1500Hz, hoge resonantie, drive
+        send_cvset(8'd1, 16'h323E);   // v0 cutoff → g ≈ 0x191F0
+        send_cvset(8'd2, 16'h6000);   // v0 reson  → k ≈ 0.25 (scream)
+        send_cvset(8'd3, 16'h7FFF);   // v0 drive  → ≈ 3.0
+        // Pitch-dCV noot 33 (A1): bin-midden = round(33.5*65536/120) = 0x4777
         send_cvset(8'd0, 16'h4777);
+        send_gateset(8'd0, 1'b1);     // stem 0 aan
 
-        // Noot aan
-        send_gateset(8'd0, 1'b1);
+        // ---- stem 1 (slots 4..7): D2, mildere instellingen, 0,3 s later
+        #300000000;
+        send_cvset(8'd5, 16'h2000);   // v1 cutoff
+        send_cvset(8'd6, 16'h3000);   // v1 reson
+        send_cvset(8'd7, 16'h4000);   // v1 drive
+        // Pitch-dCV noot 38 (D2): bin-midden = round(38.5*65536/120) = 0x5222
+        send_cvset(8'd4, 16'h5222);
+        send_gateset(8'd1, 1'b1);     // stem 1 aan
 
-        // ~1.5 s laten klinken
-        #1500000000;
+        // rest laten klinken (totaal ~1.5 s)
+        #1200000000;
 
-        $display("PEAKCHECK str_peak=%0d filt_peak=%0d", str_peak, filt_peak);
-        if (str_peak > 0 && filt_peak > 0)
-            $display("END_OK: SPI-gedreven audio aanwezig");
+        $display("PEAKCHECK str_peak=%0d filt_peak=%0d v0=%0d v1=%0d",
+                 str_peak, filt_peak, v0_peak, v1_peak);
+        if (str_peak > 0 && filt_peak > 0 && v0_peak > 0 && v1_peak > 0)
+            $display("END_OK: SPI-gedreven audio op beide stemmen");
         else
-            $display("END_FAIL: geen audio");
+            $display("END_FAIL: geen (2-stemmige) audio");
         $finish;
     end
 
