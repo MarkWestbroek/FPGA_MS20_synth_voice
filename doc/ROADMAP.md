@@ -77,10 +77,15 @@ Zie `D:\Git\Muziek\MusicBrain` (ADR 0010/0011, `doc/protocols/spi-frame.md`,
 - [ ] (optioneel, "spotless") PLL 27→6.144 MHz + /4 → exact 48 kHz, sample-locked.
 - [ ] Optioneel: Teensy 4.1 die I2S meeluistert → USB-audio voor opname.
 
-### ⬜ Fase 4 — Polyfonie & stemmen-telling
-- [ ] Refactor naar één time-multiplexed voice-engine + gedeelde BRAM.
-- [ ] Echte Gowin-synthese voor resource-baseline (LUT/DSP/BSRAM).
-- [ ] Doel: 8 stemmen comfortabel, 16+ met packing/lagere bit-diepte.
+### 🔶 Fase 4 — Polyfonie & wavetable — IN UITVOERING
+Zie [POLY_PLAN.md](POLY_PLAN.md) voor het volledige plan + budget-analyse.
+- [ ] Stap 1: `voice_engine.v` — 8 stemmen time-multiplexed (gedeelde KS+MS-20
+      kern, delay-BRAM 16384×18, FILL in achtergrond, SPI-slots per stem).
+      Tag `0.2-poly8` zodra sims groen.
+- [ ] Stap 2: wavetable-oscillator per stem (mipmapped tabellen in BSRAM,
+      fase-accumulator, amp-envelope). Tag `0.3-wavetable`.
+- [x] Echte Gowin-synthese resource-baseline: Logic 5%, BSRAM 22%, DSP 42%.
+- Later: morphing, DDR3-banken, modale bank, fractional tuning, ladder-mode.
 
 ## Open vragen / beslissingen
 - Bit-diepte audio-pad (24-bit I2S? sample-breedte in delay-lines?).
