@@ -85,10 +85,76 @@ def gen_note_period(fs=48000, max_delay=2047, min_period=8):
           f"clamp [{min_period},{max_delay}])")
 
 
+OUT_PHINC = "note_phinc.hex"
+
+
+def gen_note_phinc(fs=48000):
+    """MIDI-note (0..127) -> 32-bit fase-increment: inc = f0 * 2^32 / fs.
+
+    Voor de wavetable-oscillator (32-bit fase-accumulator). De mip-keuze
+    gebeurt in hardware uit de MSB-positie van inc (octaaf ~ verdubbeling).
+    """
+    lines = []
+    for n in range(128):
+        freq = 440.0 * (2.0 ** ((n - 69) / 12.0))
+        inc = int(round(freq * (1 << 32) / fs))
+        inc = min(inc, (1 << 32) - 1)
+        lines.append(f"{inc:08X}")
+    with open(OUT_PHINC, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"  geschreven: {OUT_PHINC}  (128 noten -> fase-increment @ {fs} Hz)")
+
+
+OUT_WT = "wavetable.hex"
+WT_N = 1024           # samples per golfvorm per mip
+WT_MIPS = 8           # octaaf-mipmaps per golfvorm
+WT_WAVES = 2          # 0 = saw, 1 = square
+
+
+def gen_wavetable():
+    """Bandgelimiteerde wavetables met octaaf-mipmaps -> wavetable.hex.
+
+    Adres (14 bit): {wave[0], mip[2:0], idx[9:0]} — 2 golfvormen x 8 mips x
+    1024 x 16-bit signed = 16 BSRAM-blokken.
+
+    Mip m wordt in hardware gekozen voor phase-inc in [2^(19+m), 2^(20+m)),
+    d.w.z. f0 in ~[11.2*2^m, 22.4*2^m) Hz. Het aantal harmonischen per mip is
+    zo gekozen dat de hoogste harmonische onder ~22 kHz blijft (met marge),
+    gecapt op 256 (tabel-resolutie).
+    """
+    lines = []
+    for wave in range(WT_WAVES):
+        for m in range(WT_MIPS):
+            f_max = 22.4 * (2 ** m)              # bovenkant van het mip-bereik
+            n_harm = max(1, min(256, int(20000.0 / f_max)))
+            tbl = [0.0] * WT_N
+            for h in range(1, n_harm + 1):
+                if wave == 0:                     # saw: alle harmonischen, 1/h
+                    a = 1.0 / h
+                elif h % 2 == 1:                  # square: oneven, 1/h
+                    a = 1.0 / h
+                else:
+                    continue
+                for i in range(WT_N):
+                    tbl[i] += a * math.sin(2.0 * math.pi * h * i / WT_N)
+            peak = max(abs(x) for x in tbl)
+            scale = 32000.0 / peak                # normaliseer net onder full-scale
+            for i in range(WT_N):
+                v = int(round(tbl[i] * scale))
+                v = max(-32768, min(32767, v))
+                lines.append(f"{v & 0xFFFF:04X}")
+            print(f"    wave {wave} mip {m}: {n_harm:3d} harmonischen")
+    with open(OUT_WT, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"  geschreven: {OUT_WT}  ({WT_WAVES} golfvormen x {WT_MIPS} mips x {WT_N} x 16-bit)")
+
+
 if __name__ == "__main__":
     print("Tabellen genereren...")
     gen_tanh()
     gen_note_period()
+    gen_note_phinc()
+    gen_wavetable()
     # Filter draait intern op 2x oversampling => 96 kHz.
     print_g_constants(96000)
     print("\nKlaar!")

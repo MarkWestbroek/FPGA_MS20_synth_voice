@@ -37,6 +37,12 @@ module voice_engine (
     // per-stem KS-period (8 × 11 bit, stem 0 = bits [10:0])
     input  wire [87:0] period_flat,
 
+    // ---- wavetable-oscillator (exciter-keuze per stem) ----
+    input  wire [7:0]   wt_en,        // 1 = wavetable, 0 = Karplus-Strong
+    input  wire [7:0]   wt_wave,      // golfvorm per stem: 0 = saw, 1 = square
+    input  wire [7:0]   gate,         // amp-envelope gate per stem (voor WT)
+    input  wire [255:0] phinc_flat,   // fase-increment per stem (8 × 32 bit)
+
     // 1 = interne wah-envelope per stem (demo); 0 = SPI: statische per-stem params
     input  wire        use_env,
     // globale wah-niveau parameters (Q12.20; env_g_step==0 → statisch env_g_open)
@@ -68,6 +74,8 @@ module voice_engine (
     reg [15:0]        env_t      [0:NV-1];
     reg signed [31:0] fg         [0:NV-1];    // per-stem envelope-cutoff
     reg signed [31:0] lastout    [0:NV-1];    // laatste filteroutput (debug/tb)
+    reg [31:0]        phase      [0:NV-1];    // WT fase-accumulator
+    reg [16:0]        amp        [0:NV-1];    // WT amp-envelope (Q1.16, 0..65536)
 
     // flat inputs → per-stem views
     wire [10:0]        period_v [0:NV-1];
@@ -99,13 +107,58 @@ module voice_engine (
     wire signed [17:0] noise18 = lfsr[17:0];
 
     // ========================================================================
+    // Wavetable-ROM: 2 golfvormen × 8 mips × 1024 × 16 bit (wavetable.hex)
+    // ========================================================================
+    (* ram_style = "block" *) reg signed [15:0] wrom [0:16383];
+    initial begin
+        $readmemh("wavetable.hex", wrom);
+    end
+
+    // ========================================================================
     // Gedeelde datapath — combinatorisch rond de cur_* werkregisters
     // ========================================================================
     reg [2:0]         v;          // huidige stem
     reg signed [17:0] s0, s1;     // gelezen delay-samples (Q1.17)
+    reg signed [15:0] s0w, s1w;   // gelezen wavetable-samples
     reg signed [31:0] cur_lp, cur_bp, cur_in;
     reg signed [32:0] vsum;       // som van de 2 oversample-suboutputs
     reg signed [31:0] sub0;
+
+    // ---- WT-oscillator: mip-keuze uit de MSB-positie van de fase-increment
+    // (mip m dekt inc in [2^(19+m), 2^(20+m)); conservatief clampen op 7)
+    function [2:0] mip_of(input [31:0] inc);
+        casez (inc[30:20])
+            11'b1zzzzzzzzzz: mip_of = 3'd7;
+            11'b01zzzzzzzzz: mip_of = 3'd7;
+            11'b001zzzzzzzz: mip_of = 3'd7;
+            11'b0001zzzzzzz: mip_of = 3'd7;
+            11'b00001zzzzzz: mip_of = 3'd7;
+            11'b000001zzzzz: mip_of = 3'd6;
+            11'b0000001zzzz: mip_of = 3'd5;
+            11'b00000001zzz: mip_of = 3'd4;
+            11'b000000001zz: mip_of = 3'd3;
+            11'b0000000001z: mip_of = 3'd2;
+            11'b00000000001: mip_of = 3'd1;
+            default:         mip_of = 3'd0;
+        endcase
+    endfunction
+
+    wire [31:0] cur_phinc = phinc_flat[v*32 +: 32];
+    wire [2:0]  cur_mip   = mip_of(cur_phinc);
+    wire [9:0]  wt_idx    = phase[v][31:22];
+    wire [7:0]  wt_frac   = phase[v][21:14];
+    wire [13:0] wt_addr0  = {wt_wave[v], cur_mip, wt_idx};
+    wire [13:0] wt_addr1  = {wt_wave[v], cur_mip, wt_idx + 10'd1};  // wrapt in 10 bit
+
+    // lineaire interpolatie + amp-envelope (Q1.16) → Q12.20.
+    // <<3 i.p.v. <<5: WT-amplitude ~0.25 — in balans met de KS-pluk (~0.3),
+    // en houdt de mix ruim binnen bereik bij meerdere sustained stemmen.
+    wire signed [16:0] wt_diff  = s1w - s0w;
+    wire signed [25:0] wt_dprod = wt_diff * $signed({1'b0, wt_frac});
+    wire signed [16:0] wt_lerp  = s0w + (wt_dprod >>> 8);
+    wire signed [31:0] wt_q20   = {{13{wt_lerp[15]}}, wt_lerp[15:0], 3'b000};
+    wire signed [49:0] wt_aprod = wt_q20 * $signed({1'b0, amp[v]});
+    wire signed [31:0] wt_out   = wt_aprod[47:16];
 
     // KS: Q1.17 → Q12.20 (<<3), moving average + damping
     wire signed [31:0] s0_q20     = {{11{s0[17]}}, s0, 3'b000};
@@ -174,6 +227,9 @@ module voice_engine (
     localparam S_ENV  = 4'd9;   // mix-acc + state-writeback + envelope
     localparam S_MIX  = 4'd10;  // outputs bijwerken
     localparam S_FILL = 4'd11;  // achtergrond-fill van delay-lijnen
+    localparam S_W1   = 4'd12;  // WT: lees sample[idx]
+    localparam S_W2   = 4'd13;  // WT: lees sample[idx+1]
+    localparam S_WC   = 4'd14;  // WT: lerp + amp → cur_in, fase-update
 
     reg [3:0]  state;
     reg [7:0]  trig_l;          // triggers gelatcht op de tick
@@ -217,6 +273,7 @@ module voice_engine (
             s0 <= 18'sd0; s1 <= 18'sd0;
             cur_lp <= 32'sd0; cur_bp <= 32'sd0; cur_in <= 32'sd0;
             vsum <= 33'sd0; sub0 <= 32'sd0;
+            s0w <= 16'sd0; s1w <= 16'sd0;
             for (k = 0; k < NV; k = k + 1) begin
                 ptr[k]         <= 11'd0;
                 initialized[k] <= 1'b0;
@@ -225,6 +282,8 @@ module voice_engine (
                 env_t[k]       <= 16'd0;
                 fg[k]          <= 32'sd0;
                 lastout[k]     <= 32'sd0;
+                phase[k]       <= 32'd0;
+                amp[k]         <= 17'd0;
             end
         end else begin
             // ---- tick-start (vanuit WAIT of FILL): stemmen-ronde beginnen ----
@@ -234,14 +293,19 @@ module voice_engine (
                 str_acc <= 36'sd0;
                 v       <= 3'd0;
                 state   <= S_VST;
-                // triggers → fill-request + stem stil tot de lijn opnieuw vol is
+                // triggers: KS → fill-request (stem stil tot de lijn vol is);
+                //           WT → fase-reset (amp-attack loopt via gate)
                 for (k = 0; k < NV; k = k + 1) begin
                     if (trig[k]) begin
-                        fill_req[k]    <= 1'b1;
-                        initialized[k] <= 1'b0;
-                        ptr[k]         <= 11'd0;
-                        if (fill_busy && fill_v == k[2:0])
-                            fill_idx <= 11'd0;      // her-trigger tijdens fill: opnieuw
+                        if (wt_en[k]) begin
+                            phase[k] <= 32'd0;
+                        end else begin
+                            fill_req[k]    <= 1'b1;
+                            initialized[k] <= 1'b0;
+                            ptr[k]         <= 11'd0;
+                            if (fill_busy && fill_v == k[2:0])
+                                fill_idx <= 11'd0;  // her-trigger tijdens fill: opnieuw
+                        end
                     end
                 end
             end else begin
@@ -252,7 +316,10 @@ module voice_engine (
                     S_VST: begin
                         cur_lp <= lp_r[v];
                         cur_bp <= bp_r[v];
-                        if (!initialized[v]) begin
+                        if (wt_en[v]) begin
+                            skip  <= 1'b0;
+                            state <= S_W1;             // wavetable-exciter
+                        end else if (!initialized[v]) begin
                             // stil (wordt gevuld of nooit getriggerd): filter overslaan
                             skip   <= 1'b1;
                             vsum   <= 33'sd0;
@@ -260,8 +327,26 @@ module voice_engine (
                             state  <= S_ENV;
                         end else begin
                             skip  <= 1'b0;
-                            state <= S_R1;
+                            state <= S_R1;             // Karplus-Strong exciter
                         end
+                    end
+
+                    // ---- WT-oscillator: 2 reads + lerp/amp ----
+                    S_W1: begin
+                        s0w   <= wrom[wt_addr0];
+                        state <= S_W2;
+                    end
+
+                    S_W2: begin
+                        s1w   <= wrom[wt_addr1];
+                        state <= S_WC;
+                    end
+
+                    S_WC: begin
+                        cur_in   <= wt_out;
+                        str_acc  <= str_acc + $signed(wt_out);
+                        phase[v] <= phase[v] + cur_phinc;
+                        state    <= S_FS1;
                     end
 
                     S_R1: begin
@@ -319,6 +404,13 @@ module voice_engine (
                             if (env_t[v][5:0] == 6'd0 && fg[v] > env_g_end + env_g_step)
                                 fg[v] <= fg[v] - env_g_step;
                         end
+                        // WT amp-envelope: attack ~0,7 ms, release ~85 ms
+                        if (gate[v])
+                            amp[v] <= (amp[v] >= 17'd63488) ? 17'd65536
+                                                            : amp[v] + 17'd2048;
+                        else
+                            amp[v] <= (amp[v] <= 17'd16) ? 17'd0
+                                                         : amp[v] - 17'd16;
                         if (v == NV-1) state <= S_MIX;
                         else begin v <= v + 3'd1; state <= S_VST; end
                     end

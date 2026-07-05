@@ -92,10 +92,31 @@ module synth_top #(
         endcase
     endfunction
 
+    // MIDI-noten bij het arp-patroon (voor de wavetable-phinc-LUT)
+    function [6:0] arp_note(input [2:0] i);
+        case (i)
+            3'd0: arp_note = 7'd28;   // E1
+            3'd1: arp_note = 7'd33;   // A1
+            3'd2: arp_note = 7'd38;   // D2
+            3'd3: arp_note = 7'd31;   // G1
+            3'd4: arp_note = 7'd40;   // E2
+            3'd5: arp_note = 7'd43;   // G2
+            3'd6: arp_note = 7'd45;   // A2
+            default: arp_note = 7'd50; // D3
+        endcase
+    endfunction
+
+    // Demo-exciters: oneven stemmen wavetable (1,5 = saw; 3,7 = square),
+    // even stemmen Karplus-Strong — zo hoor je beide karakters door elkaar.
+    localparam [7:0] DEMO_WT_EN   = 8'b1010_1010;
+    localparam [7:0] DEMO_WT_WAVE = 8'b1000_1000;
+
     reg [14:0]  arp_cnt;              // 0..23999 ticks = 0,5 s per stap
     reg [2:0]   arp_v;                // round-robin stem/noot-index
     reg [7:0]   trig_demo;            // per-stem trigger (één tick-gap hoog)
     reg [10:0]  period_demo [0:NV-1];
+    reg [16:0]  gcnt [0:NV-1];        // demo-gate: ~2 s aan na trigger (WT)
+    reg [7:0]   gate_demo;
 
     integer d;
     always @(posedge sys_clk or posedge rst) begin
@@ -103,9 +124,20 @@ module synth_top #(
             arp_cnt   <= 15'd0;
             arp_v     <= 3'd0;
             trig_demo <= 8'd0;
-            for (d = 0; d < NV; d = d + 1) period_demo[d] <= arp_period(d[2:0]);
+            gate_demo <= 8'd0;
+            for (d = 0; d < NV; d = d + 1) begin
+                period_demo[d] <= arp_period(d[2:0]);
+                gcnt[d]        <= 17'd0;
+            end
         end else if (sample_clk_tick) begin
             trig_demo <= 8'd0;
+            for (d = 0; d < NV; d = d + 1) begin
+                if (arp_cnt == 15'd0 && arp_v == d[2:0])
+                    gcnt[d] <= 17'd96000;              // gate ~2 s aan
+                else if (gcnt[d] != 17'd0)
+                    gcnt[d] <= gcnt[d] - 17'd1;
+                gate_demo[d] <= (gcnt[d] != 17'd0);
+            end
             if (arp_cnt == 15'd0) begin
                 trig_demo[arp_v]   <= 1'b1;
                 period_demo[arp_v] <= arp_period(arp_v);
@@ -117,6 +149,10 @@ module synth_top #(
                 arp_cnt <= arp_cnt + 15'd1;
         end
     end
+
+    // phinc-lookup-request vanuit de demo (zelfde conditie als de trigger)
+    wire       demo_nph_req  = sample_clk_tick && (arp_cnt == 15'd0);
+    wire [6:0] demo_nph_note = arp_note(arp_v);
 
     // ========================================================================
     // SPI-CONTROL: brain → per-stem CV/gate (slot = voice*4+param)
@@ -158,18 +194,22 @@ module synth_top #(
     // drive: 1.0 + CV
     wire signed [31:0] drv_map = 32'sh00100000 + $signed({16'd0, cv_val} << 6);
 
-    // per-stem parameter-arrays (SPI-mode)
+    // per-stem parameter-arrays (SPI-mode; phinc ook door de demo gebruikt)
     reg [10:0]        period_spi [0:NV-1];
     reg signed [31:0] g_spi_a    [0:NV-1];
     reg signed [31:0] k_spi_a    [0:NV-1];
     reg signed [31:0] drv_spi_a  [0:NV-1];
+    reg [31:0]        phinc_a    [0:NV-1];
 
-    // pitch → period via de note_to_period-LUT (sync read): 2-staps pipeline
+    // pitch → period/phinc via de LUT's (sync read): 2-staps pipeline.
+    // Requests komen van SPI-CvSet (pitch) óf van de demo-arpeggiator.
     reg  [6:0] n2p_note;
     reg  [2:0] n2p_v;
     reg  [1:0] n2p_pend;
     wire [10:0] n2p_period;
+    wire [31:0] n2p_phinc;
     note_to_period u_n2p (.clk(sys_clk), .note(n2p_note), .period(n2p_period));
+    note_phinc     u_nph (.clk(sys_clk), .note(n2p_note), .phinc(n2p_phinc));
 
     integer s;
     always @(posedge sys_clk or posedge rst) begin
@@ -180,6 +220,7 @@ module synth_top #(
                 g_spi_a[s]    <= 32'h0000D671;   // ~800 Hz
                 k_spi_a[s]    <= 32'h000A0000;   // 0.625
                 drv_spi_a[s]  <= 32'h00200000;   // 2.0
+                phinc_a[s]    <= 32'd0;
             end
         end else begin
             n2p_pend <= {n2p_pend[0], 1'b0};
@@ -194,8 +235,15 @@ module synth_top #(
                     2'd2: k_spi_a[cv_voice]   <= k_map;
                     2'd3: drv_spi_a[cv_voice] <= drv_map;
                 endcase
+            end else if (demo_nph_req) begin      // demo: phinc voor de arp-noot
+                n2p_note <= demo_nph_note;
+                n2p_v    <= arp_v;
+                n2p_pend <= 2'b01;
             end
-            if (n2p_pend[1]) period_spi[n2p_v] <= n2p_period;
+            if (n2p_pend[1]) begin
+                period_spi[n2p_v] <= n2p_period;
+                phinc_a[n2p_v]    <= n2p_phinc;
+            end
         end
     end
 
@@ -220,7 +268,7 @@ module synth_top #(
     wire [7:0] eff_trig  = demo_eff ? trig_demo : spi_trig_tick;
 
     wire [87:0]  period_flat;
-    wire [255:0] g_spi_flat, k_spi_flat, drv_spi_flat;
+    wire [255:0] g_spi_flat, k_spi_flat, drv_spi_flat, phinc_flat;
     genvar gv;
     generate
         for (gv = 0; gv < NV; gv = gv + 1) begin : g_mux
@@ -229,8 +277,15 @@ module synth_top #(
             assign g_spi_flat  [gv*32 +: 32] = g_spi_a[gv];
             assign k_spi_flat  [gv*32 +: 32] = k_spi_a[gv];
             assign drv_spi_flat[gv*32 +: 32] = drv_spi_a[gv];
+            assign phinc_flat  [gv*32 +: 32] = phinc_a[gv];
         end
     endgenerate
+
+    // exciter-keuze + gates: demo laat KS en wavetable door elkaar horen;
+    // SPI-mode is (voorlopig) volledig KS — mode-select per stem komt later
+    // met de brain-protocol-uitbreiding.
+    wire [7:0] eff_wt_en = demo_eff ? DEMO_WT_EN : 8'h00;
+    wire [7:0] eff_gate  = demo_eff ? gate_demo  : spi_gate;
 
     // ========================================================================
     // WAH-NIVEAUS (T2-drukknop, DIP E9 = master aan/uit) — zie oude synth_top;
@@ -316,6 +371,10 @@ module synth_top #(
         .ce         (sample_clk_tick),
         .trig       (eff_trig),
         .period_flat(period_flat),
+        .wt_en      (eff_wt_en),
+        .wt_wave    (DEMO_WT_WAVE),
+        .gate       (eff_gate),
+        .phinc_flat (phinc_flat),
         .use_env    (demo_eff),
         .env_g_open (env_g_open),
         .env_g_end  (env_g_end),
