@@ -33,15 +33,36 @@ mogen tijdens de LED-test unconstrained blijven (Gowin plaatst ze automatisch).
 - **Synthesize → Place & Route** → genereert `*.fs` (de bitstream) in `impl/pnr/`.
 
 ## 3. Flashen
-Twee tools werken voor de Tang Primer 20K (GW2A-18C):
 
-- **Gowin Programmer** (GUI, hoort bij Gowin EDA): kies de `.fs`, target SRAM of
-  embedded flash.
-- **openFPGALoader** (open source, CLI):
+> **⚠ Bekende situatie op dit bord (2026-07-06):** SRAM-programmeren via JTAG
+> komt niet meer door de wakeup (User Code blijft 0x00000000, status 0x20) —
+> voor zowel oude als nieuwe bitstreams, GUI én CLI, elke frequentie. Booten
+> uit de externe flash werkt wél altijd. **De betrouwbare route is dus: de
+> externe flash schrijven via boundary-scan en power-cyclen.** Symptoom van
+> het probleem: "User code mismatch" + de oude demo blijft spelen (de FPGA
+> valt na elke mislukte JTAG-load terug op de flash-image).
+
+**Werkend recept (headless, zonder GUI — sluit IDE/Programmer eerst):**
+```powershell
+# bouwen (vanuit projectroot):
+& "C:\Gowin\Gowin_V1.9.12.02_SP2_x64\IDE\bin\gw_sh.exe" build.tcl
+#   build.tcl = twee regels: open_project <pad>.gprj  /  run all
+
+# flash schrijven via boundary-scan (~7,5 min) + daarna USB power-cycle:
+& "C:\Gowin\Gowin_V1.9.12.02_SP2_x64\Programmer\bin\programmer_cli.exe" `
+    --device GW2A-18C --run 12 `
+    --fsFile "E:\Dev\Gowin\MS20_synth_voice\impl\pnr\MS20_Synth_Voice.fs" `
+    --spiaddr 0x000000 --location 625
+```
+(`--run 12` = "exFlash Erase,Program in bscan" — heeft géén werkende
+SRAM-configuratie nodig. `--location` = USB-locatie uit `--scan-cables`.
+Een write die in ~5 s "klaar" is, is NIET gelukt; een echte duurt minuten.)
+
+Alternatieven (werkten hier tot 2026-07-05, nu niet meer voor SRAM):
+- **Gowin Programmer** (GUI): SRAM Program / External Flash Mode.
+- **openFPGALoader** (niet geïnstalleerd; vereist WinUSB-driver via Zadig,
+  wat de Gowin-tools blokkeert tot je de driver terugzet):
   ```bash
-  # vluchtig (verdwijnt na power-cycle) — snel testen:
-  openFPGALoader -b tangprimer20k impl/pnr/MS20_Synth_Voice.fs
-  # persistent in flash:
   openFPGALoader -b tangprimer20k -f impl/pnr/MS20_Synth_Voice.fs
   ```
 
