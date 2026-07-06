@@ -347,7 +347,7 @@ module synth_top #(
                 env_g_open = 32'h00042D45;  // ~4000 Hz
                 env_g_end  = 32'h0000D671;  // ~800 Hz
                 env_g_step = 32'h00000248;  // (open-eind)/375 → sweep ~0,5 s
-                env_k      = 32'h00060000;  // 0.375
+                env_k      = 32'h00080000;  // 0.5 (0.375 klonk hol/"distant")
                 env_drive  = 32'h00300000;  // 3.0
             end
             default: begin  // 0 = uit: statische cutoff
