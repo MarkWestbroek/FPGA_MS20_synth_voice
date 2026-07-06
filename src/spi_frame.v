@@ -12,17 +12,17 @@
 // we kijken alleen naar het lage byte van `channel` (= slotId) om te bepalen welk
 // voice-parameter een CvSet/GateSet aanstuurt.
 //
-// Ondersteunde opcodes (instrument-subset, 8 stemmen):
+// Ondersteunde opcodes (instrument-subset):
 //   0x00 Ping     → pong_req puls (Pong-antwoord op MISO)
 //   0x10 CvSet    payload: u16 channel, u16 value (dCV, offset-binary)
-//                   slotId = voice*4 + param  (voices 0..7 → slots 0..31)
-//                   param: 0=pitch, 1=cutoff, 2=reson, 3=drive
-//                   (stem 0 = slots 0..3: backwards-compatible met mono)
+//                   slotId = het lage byte van channel; wordt hier RUW
+//                   doorgegeven — de betekenis per slot (het contract) ligt
+//                   in synth_top / doc/SPI_SLOTMAP.md
 //   0x20 GateSet  payload: u16 channel, u8 on
-//                   slotId = voice (0..7) → gate[v] (+ trigger[v]-puls bij 0→1)
+//                   slotId = stem (0..7) → gate[v] (+ trigger[v]-puls bij 0→1)
 //
-// CV-waarden komen er als schrijf-poort uit (cv_we/voice/param/val); synth_top
-// houdt de per-stem arrays bij en mapt naar Q12.20 / KS-period.
+// CV-waarden komen er als schrijf-poort uit (cv_we/cv_slot/cv_val); synth_top
+// decodeert het slot-contract en houdt de per-stem arrays bij.
 // ============================================================================
 
 `timescale 1ns / 1ps
@@ -38,9 +38,8 @@ module spi_frame (
 
     // CV-schrijfpoort — dCV: u16 offset-binary, 0x0000 = range-min,
     // 0xFFFF = range-max (zie doc/PITCH_CV.md / MusicBrain ADR 0014)
-    output reg        cv_we,        // 1-klok puls: cv_voice/cv_param/cv_val geldig
-    output reg [2:0]  cv_voice,     // stem 0..7
-    output reg [1:0]  cv_param,     // 0=pitch, 1=cutoff, 2=reson, 3=drive
+    output reg        cv_we,        // 1-klok puls: cv_slot/cv_val geldig
+    output reg [7:0]  cv_slot,      // slotId (betekenis: doc/SPI_SLOTMAP.md)
     output reg [15:0] cv_val,
     output reg [7:0]  gate,         // gate-niveau per stem
     output reg [7:0]  trigger,      // 1-klok puls per stem bij gate 0→1
@@ -120,8 +119,7 @@ module spi_frame (
             pidx      <= 8'd0;
             crc_hi    <= 8'd0;
             cv_we     <= 1'b0;
-            cv_voice  <= 3'd0;
-            cv_param  <= 2'd0;
+            cv_slot   <= 8'd0;
             cv_val    <= 16'd0;
             gate      <= 8'd0;
             trigger   <= 8'd0;
@@ -203,13 +201,10 @@ module spi_frame (
                                 end
 
                                 OP_CVSET: begin
-                                    // slot = voice*4 + param; alleen slots 0..31
-                                    if (slot < 8'd32) begin
-                                        cv_we    <= 1'b1;
-                                        cv_voice <= slot[4:2];
-                                        cv_param <= slot[1:0];
-                                        cv_val   <= val;
-                                    end
+                                    // slot ruw doorgeven; synth_top kent het contract
+                                    cv_we   <= 1'b1;
+                                    cv_slot <= slot;
+                                    cv_val  <= val;
                                 end
 
                                 OP_GATESET: begin

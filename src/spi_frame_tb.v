@@ -21,8 +21,7 @@ module spi_frame_tb();
     wire [7:0] tx_byte; wire tx_load;
 
     wire        cv_we;
-    wire [2:0]  cv_voice;
-    wire [1:0]  cv_param;
+    wire [7:0]  cv_slot;
     wire [15:0] cv_val;
     wire [7:0]  gate, trigger;
     wire pong_req, frame_ok;
@@ -36,7 +35,7 @@ module spi_frame_tb();
     spi_frame u_frame (
         .clk(clk), .rst(rst),
         .rx_byte(rx_byte), .rx_valid(rx_valid), .cs_active(cs_active),
-        .cv_we(cv_we), .cv_voice(cv_voice), .cv_param(cv_param), .cv_val(cv_val),
+        .cv_we(cv_we), .cv_slot(cv_slot), .cv_val(cv_val),
         .gate(gate), .trigger(trigger),
         .pong_req(pong_req), .frame_ok(frame_ok),
         .tx_byte(tx_byte), .tx_load(tx_load)
@@ -46,11 +45,11 @@ module spi_frame_tb();
     integer pass = 0, fail = 0;
     reg [15:0] tb_crc;
 
-    // vang CV-schrijfacties per slot (slot = {voice, param})
-    reg [15:0] cvv [0:31];
+    // vang CV-schrijfacties per slot (spi_frame geeft het slot ruw door)
+    reg [15:0] cvv [0:63];
     integer ci;
-    initial for (ci = 0; ci < 32; ci = ci + 1) cvv[ci] = 16'hDEAD;
-    always @(posedge clk) if (cv_we) cvv[{cv_voice, cv_param}] <= cv_val;
+    initial for (ci = 0; ci < 64; ci = ci + 1) cvv[ci] = 16'hDEAD;
+    always @(posedge clk) if (cv_we && cv_slot < 8'd64) cvv[cv_slot[5:0]] <= cv_val;
 
     reg [7:0] trig_seen = 0;
     reg ok_seen = 0, pong_seen = 0;
@@ -136,22 +135,21 @@ module spi_frame_tb();
     initial begin
         #100; rst = 0; #100;
 
-        // voice 0 (slots 0..3, backwards-compatible met mono)
-        send_cvset(8'd1, 16'h1234, 1'b0);
-        check(cvv[1] == 16'h1234,   "CvSet v0 cutoff (slot 1) == 0x1234");
+        // slots worden ruw doorgegeven (contract ligt in synth_top)
+        send_cvset(8'd8, 16'h1234, 1'b0);
+        check(cvv[8] == 16'h1234,   "CvSet slot 8 (cutoff stem 0) doorgegeven");
         check(ok_seen,              "CvSet frame_ok gepulst");
 
         send_cvset(8'd0, 16'hFF00, 1'b0);
-        check(cvv[0] == 16'hFF00,   "CvSet v0 pitch (slot 0) == 0xFF00");
+        check(cvv[0] == 16'hFF00,   "CvSet slot 0 (pitch stem 0) doorgegeven");
 
-        // voice 3, param 2 (reson) → slot 14
-        send_cvset(8'd14, 16'h0040, 1'b0);
-        check(cvv[14] == 16'h0040,  "CvSet v3 reson (slot 14) == 0x0040");
-        check(cvv[2] == 16'hDEAD,   "v0 reson onaangeraakt (per-stem adressering)");
+        send_cvset(8'd17, 16'h0040, 1'b0);
+        check(cvv[17] == 16'h0040,  "CvSet slot 17 (reson stem 1) doorgegeven");
+        check(cvv[16] == 16'hDEAD,  "buurslot 16 onaangeraakt");
 
-        // slot buiten bereik: genegeerd
-        send_cvset(8'd40, 16'hBEEF, 1'b0);
-        check(cvv[8] == 16'hDEAD,   "slot 40 (buiten 0..31) genegeerd");
+        // ook hoge slots (globale controls) passeren de protocol-laag
+        send_cvset(8'd48, 16'hBEEF, 1'b0);
+        check(cvv[48] == 16'hBEEF,  "CvSet slot 48 (globaal) doorgegeven");
 
         // gates per stem
         trig_seen = 0;
@@ -169,8 +167,8 @@ module spi_frame_tb();
 
         // foute CRC: stil droppen
         ok_seen = 0;
-        send_cvset(8'd1, 16'h7FFF, 1'b1);
-        check(cvv[1] == 16'h1234,   "Foute CRC: cutoff ongewijzigd");
+        send_cvset(8'd8, 16'h7FFF, 1'b1);
+        check(cvv[8] == 16'h1234,   "Foute CRC: slot 8 ongewijzigd");
         check(!ok_seen,             "Foute CRC: geen frame_ok");
 
         // Ping -> Pong op MISO

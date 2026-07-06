@@ -1,10 +1,11 @@
 // ============================================================================
 // SYNTH_TOP_SPI_TB — end-to-end test: SPI-frames → audio (2 stemmen)
 //
-// Stuurt MusicBrain-frames naar synth_top in SPI-mode (demo_mode=0):
-// stem 0 (slots 0..3) krijgt A1, stem 1 (slots 4..7) krijgt D2 (0,3 s later).
-// Rendert ~1.5 s audio (CSV via $display) en controleert dat beide stemmen
-// daadwerkelijk klinken.
+// Stuurt MusicBrain-frames naar synth_top in SPI-mode (demo_mode=0), volgens
+// het slot-contract van doc/SPI_SLOTMAP.md (blokken van 8 per parameter):
+//   stem 0 = KS-pluk op A1; stem 1 = WAVETABLE (saw, via exciter-slot 33)
+//   op D2, 0,3 s later. Rendert ~1.5 s audio (CSV via $display) en
+//   controleert dat beide stemmen daadwerkelijk klinken.
 // ============================================================================
 
 `timescale 1ns / 1ps
@@ -102,32 +103,34 @@ module synth_top_spi_tb();
     initial begin
         sys_rst_n = 0; #200; sys_rst_n = 1; #200;
 
-        // ---- stem 0 (slots 0..3): A1, cutoff ~1500Hz, hoge resonantie, drive
-        send_cvset(8'd1, 16'h323E);   // v0 cutoff → g ≈ 0x191F0
-        send_cvset(8'd2, 16'h6000);   // v0 reson  → k ≈ 0.25 (scream)
-        send_cvset(8'd3, 16'h7FFF);   // v0 drive  → ≈ 3.0
+        // ---- stem 0 (KS-pluk): A1, cutoff ~1500Hz, hoge resonantie, drive
+        send_cvset(8'd8,  16'h323E);  // cutoff stem 0 (blok 1) → g ≈ 0x191F0
+        send_cvset(8'd16, 16'h6000);  // reson  stem 0 (blok 2) → k ≈ 0.25
+        send_cvset(8'd24, 16'h7FFF);  // drive  stem 0 (blok 3) → ≈ 3.0
         // Pitch-dCV noot 33 (A1): bin-midden = round(33.5*65536/120) = 0x4777
-        send_cvset(8'd0, 16'h4777);
+        send_cvset(8'd0,  16'h4777);  // pitch stem 0 (blok 0)
         send_gateset(8'd0, 1'b1);     // stem 0 aan
 
-        // ---- stem 1 (slots 4..7): D2, mildere instellingen, 0,3 s later
+        // ---- stem 1 (WAVETABLE saw via exciter-slot): D2, 0,3 s later
         #300000000;
-        send_cvset(8'd5, 16'h2000);   // v1 cutoff
-        send_cvset(8'd6, 16'h3000);   // v1 reson
-        send_cvset(8'd7, 16'h4000);   // v1 drive
+        send_cvset(8'd33, 16'h6000);  // exciter stem 1 (blok 4): ≥0x4000 = WT saw
+        send_cvset(8'd9,  16'h2000);  // cutoff stem 1
+        send_cvset(8'd17, 16'h3000);  // reson  stem 1
+        send_cvset(8'd25, 16'h4000);  // drive  stem 1
         // Pitch-dCV noot 38 (D2): bin-midden = round(38.5*65536/120) = 0x5222
-        send_cvset(8'd4, 16'h5222);
-        send_gateset(8'd1, 1'b1);     // stem 1 aan
+        send_cvset(8'd1,  16'h5222);  // pitch stem 1
+        send_gateset(8'd1, 1'b1);     // stem 1 aan (gate → WT amp-envelope)
 
         // rest laten klinken (totaal ~1.5 s)
         #1200000000;
 
-        $display("PEAKCHECK str_peak=%0d filt_peak=%0d v0=%0d v1=%0d",
-                 str_peak, filt_peak, v0_peak, v1_peak);
-        if (str_peak > 0 && filt_peak > 0 && v0_peak > 0 && v1_peak > 0)
-            $display("END_OK: SPI-gedreven audio op beide stemmen");
+        $display("PEAKCHECK str_peak=%0d filt_peak=%0d v0=%0d v1=%0d wt_en=%b",
+                 str_peak, filt_peak, v0_peak, v1_peak, uut.wt_en_spi);
+        if (str_peak > 0 && filt_peak > 0 && v0_peak > 0 && v1_peak > 0
+            && uut.wt_en_spi == 8'b0000_0010)
+            $display("END_OK: KS-stem en wavetable-stem allebei via SPI");
         else
-            $display("END_FAIL: geen (2-stemmige) audio");
+            $display("END_FAIL: geen 2-stemmige KS+WT audio");
         $finish;
     end
 

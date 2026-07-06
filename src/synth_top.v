@@ -155,13 +155,19 @@ module synth_top #(
     wire [6:0] demo_nph_note = arp_note(arp_v);
 
     // ========================================================================
-    // SPI-CONTROL: brain → per-stem CV/gate (slot = voice*4+param)
+    // SPI-CONTROL: brain → per-stem CV/gate. Slot-contract (doc/SPI_SLOTMAP.md):
+    //   per-stem poorten in blokken van 8 (slot = blok·8 + stem):
+    //     blok 0 (slot 0..7)  = pitch      blok 1 (8..15)  = cutoff
+    //     blok 2 (16..23)     = resonantie blok 3 (24..31) = drive
+    //     blok 4 (32..39)     = exciter/morph (KS ↔ wavetable)
+    //     blok 5 (40..47)     = gereserveerd (per-stem expressie)
+    //   globale controls ("de knoppen", één slot elk):
+    //     slot 48 = snaar-damping (pluk-uitsterftijd)
     // ========================================================================
     wire [7:0] spi_rx_byte, spi_tx_byte;
     wire       spi_rx_valid, spi_cs_active, spi_tx_load;
     wire       cv_we;
-    wire [2:0] cv_voice;
-    wire [1:0] cv_param;
+    wire [7:0] cv_slot;
     wire [15:0] cv_val;
     wire [7:0] spi_gate, spi_trigger;
 
@@ -175,11 +181,15 @@ module synth_top #(
     spi_frame u_spi_frame (
         .clk(sys_clk), .rst(rst),
         .rx_byte(spi_rx_byte), .rx_valid(spi_rx_valid), .cs_active(spi_cs_active),
-        .cv_we(cv_we), .cv_voice(cv_voice), .cv_param(cv_param), .cv_val(cv_val),
+        .cv_we(cv_we), .cv_slot(cv_slot), .cv_val(cv_val),
         .gate(spi_gate), .trigger(spi_trigger),
         .pong_req(), .frame_ok(),
         .tx_byte(spi_tx_byte), .tx_load(spi_tx_load)
     );
+
+    // contract-decode: blok van 8 + stem-index binnen het blok
+    wire [4:0] cv_block = cv_slot[7:3];
+    wire [2:0] cv_vc    = cv_slot[2:0];
 
     // ---- CV-mappings (dCV u16 offset-binary → Q12.20, zie doc/PITCH_CV.md) ----
     // pitch: note = (code*120)>>16 (0..10V, 1 V/oct, 0V = MIDI 0)
@@ -200,6 +210,9 @@ module synth_top #(
     reg signed [31:0] k_spi_a    [0:NV-1];
     reg signed [31:0] drv_spi_a  [0:NV-1];
     reg [31:0]        phinc_a    [0:NV-1];
+    reg [7:0]         wt_en_spi;           // exciter per stem: 1 = wavetable
+    reg [7:0]         wt_wave_spi;         // golfvorm per stem: 0 = saw, 1 = square
+    reg signed [31:0] ks_damp;             // globaal: snaar-damping (slot 48)
 
     // pitch → period/phinc via de LUT's (sync read): 2-staps pipeline.
     // Requests komen van SPI-CvSet (pitch) óf van de demo-arpeggiator.
@@ -215,6 +228,9 @@ module synth_top #(
     always @(posedge sys_clk or posedge rst) begin
         if (rst) begin
             n2p_note <= 7'd0; n2p_v <= 3'd0; n2p_pend <= 2'b00;
+            wt_en_spi   <= 8'd0;                 // default: alles KS-pluk
+            wt_wave_spi <= 8'd0;
+            ks_damp     <= 32'h000FFF6A;         // ~0.9995 (decay ~2,9 s)
             for (s = 0; s < NV; s = s + 1) begin
                 period_spi[s] <= 11'd654;
                 g_spi_a[s]    <= 32'h0000D671;   // ~800 Hz
@@ -225,17 +241,27 @@ module synth_top #(
         end else begin
             n2p_pend <= {n2p_pend[0], 1'b0};
             if (cv_we) begin
-                case (cv_param)
-                    2'd0: begin                   // pitch → LUT-lookup starten
+                case (cv_block)
+                    5'd0: begin                    // pitch → LUT-lookup starten
                         n2p_note <= spi_note;
-                        n2p_v    <= cv_voice;
+                        n2p_v    <= cv_vc;
                         n2p_pend <= 2'b01;
                     end
-                    2'd1: g_spi_a[cv_voice]   <= g_map;
-                    2'd2: k_spi_a[cv_voice]   <= k_map;
-                    2'd3: drv_spi_a[cv_voice] <= drv_map;
+                    5'd1: g_spi_a[cv_vc]   <= g_map;
+                    5'd2: k_spi_a[cv_vc]   <= k_map;
+                    5'd3: drv_spi_a[cv_vc] <= drv_map;
+                    5'd4: begin                    // exciter/morph per stem
+                        // onderste kwart = KS-pluk; daarboven wavetable,
+                        // met (voorlopig) 2 golfvormen in de morph-range
+                        wt_en_spi[cv_vc]   <= (cv_val >= 16'h4000);
+                        wt_wave_spi[cv_vc] <= (cv_val >= 16'hA000);
+                    end
+                    5'd6: if (cv_vc == 3'd0)       // slot 48: snaar-damping
+                        // 0.996..~1.0: kort plukje tot bijna-oneindige sustain
+                        ks_damp <= 32'sh000FF000 + {20'd0, cv_val[15:4]};
+                    default: ;                     // onbekend slot: negeren
                 endcase
-            end else if (demo_nph_req) begin      // demo: phinc voor de arp-noot
+            end else if (demo_nph_req) begin       // demo: phinc voor de arp-noot
                 n2p_note <= demo_nph_note;
                 n2p_v    <= arp_v;
                 n2p_pend <= 2'b01;
@@ -282,10 +308,10 @@ module synth_top #(
     endgenerate
 
     // exciter-keuze + gates: demo laat KS en wavetable door elkaar horen;
-    // SPI-mode is (voorlopig) volledig KS — mode-select per stem komt later
-    // met de brain-protocol-uitbreiding.
-    wire [7:0] eff_wt_en = demo_eff ? DEMO_WT_EN : 8'h00;
-    wire [7:0] eff_gate  = demo_eff ? gate_demo  : spi_gate;
+    // SPI-mode: per stem gekozen door de brain via slot 32..39.
+    wire [7:0] eff_wt_en   = demo_eff ? DEMO_WT_EN   : wt_en_spi;
+    wire [7:0] eff_wt_wave = demo_eff ? DEMO_WT_WAVE : wt_wave_spi;
+    wire [7:0] eff_gate    = demo_eff ? gate_demo    : spi_gate;
 
     // ========================================================================
     // WAH-NIVEAUS (T2-drukknop, DIP E9 = master aan/uit) — zie oude synth_top;
@@ -363,7 +389,6 @@ module synth_top #(
     // ========================================================================
     // VOICE ENGINE — 8 stemmen KS + MS-20, time-multiplexed
     // ========================================================================
-    wire signed [31:0] ks_damping = 32'h000FFF6A;  // ~0.9995 (decay ~2,9 s)
     wire signed [31:0] string_out, filter_out;     // droge mix / gefilterde mix
 
     voice_engine u_engine (
@@ -373,7 +398,7 @@ module synth_top #(
         .trig       (eff_trig),
         .period_flat(period_flat),
         .wt_en      (eff_wt_en),
-        .wt_wave    (DEMO_WT_WAVE),
+        .wt_wave    (eff_wt_wave),
         .gate       (eff_gate),
         .phinc_flat (phinc_flat),
         .use_env    (demo_eff),
@@ -385,7 +410,7 @@ module synth_top #(
         .g_spi_flat (g_spi_flat),
         .k_spi_flat (k_spi_flat),
         .drive_spi_flat(drv_spi_flat),
-        .ks_damping (ks_damping),
+        .ks_damping (ks_damp),
         .string_out (string_out),
         .mix_out    (filter_out)
     );

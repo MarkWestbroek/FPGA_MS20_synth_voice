@@ -1,60 +1,78 @@
-# SPI-slotmap FPGA-voice (voorstel v1)
+# Het slot-contract van de FPGA-voice (v2)
 
-Voorstel voor de "final slot map" die MusicBrain ADR 0013 als open question
-markeert. Dit is wat de FPGA (tag `0.3-wavetable`+) **implementeert**; de
-brain-kant moet dit overnemen in ADR 0013 / de editor-adressering.
+De brain praat met de FPGA via het MusicBrain frame-protocol
+(`doc/protocols/spi-frame.md` in de MusicBrain-repo). In elk CvSet-frame zit
+één adresbyte: het **slot** — zie het als een genummerde CV-ingang op de
+module. Dit document is het contract: welke betekenis elk nummer heeft.
 
-Frame-protocol: MusicBrain spi-frame v1 (`doc/protocols/spi-frame.md`).
-De FPGA kijkt alleen naar het lage byte van `channel` (= slotId); CS
-selecteert het board, caseId is voor de bridge.
+De FPGA is één 8-stemmige module ("MS20 poly voice") achter zijn eigen
+chip-select. De brain hoeft dus alleen dit contract te kennen; hoe-veel-stemmig
+de module is (8) hoort thuis in de module-definitie in de MusicBrain-catalog.
 
-## CvSet (0x10) — slotId = voice·4 + param, voices 0..7
+## Hoe het adres is opgebouwd
 
-| param | betekenis | dCV-mapping (offset-binary u16, zie PITCH_CV.md) |
+Elke **per-stem parameter krijgt een blok van 8 opeenvolgende slots**, één per
+stem. Het slot voor "parameter X van stem V" is dus: *beginnummer van blok X,
+plus V*. Dit sluit aan op hoe de brain één kabel in de editor uitwaaiert naar
+N stemmen (MusicBrain ADR 0010: stem v krijgt beginnummer + v).
+
+## CvSet (opcode 0x10) — de CV-ingangen
+
+Waarden zijn dCV: u16 offset-binary, 0x0000 = onderkant van de range,
+0xFFFF = bovenkant (zie doc/PITCH_CV.md).
+
+| Slots | Parameter (per stem 0..7) | Betekenis van de waarde |
 |---|---|---|
-| 0 | pitch  | note = (code·120)>>16 — 0..10 V, 1 V/oct, 0 V = MIDI 0 |
-| 1 | cutoff | g = code·2³ (Q12.20) → 0..~0.5 (lineair, v1) |
-| 2 | reson  | k = 1.0 − code·2⁵, floor 0.125 (hoger CV = meer resonantie) |
-| 3 | drive  | drive = 1.0 + code·2⁶ → 1.0..~5.0 |
+| 0–7   | **pitch**  | 0..10 V @ 1 V/oct, 0 V = MIDI-noot 0 → `note = (code·120)>>16` |
+| 8–15  | **cutoff** | lineair naar filter-g, 0..~0.5 (v1-mapping) |
+| 16–23 | **resonantie** | hoger = meer resonantie (k = 1.0 − code·2⁵, floor 0.125) |
+| 24–31 | **drive**  | tanh-drive 1.0..~5.0 (1.0 + code·2⁶) |
+| 32–39 | **exciter/morph** | < 0x4000 = Karplus-Strong-pluk; ≥ 0x4000 = wavetable. Binnen het wavetable-bereik kiest de waarde de golfvorm (nu: < 0xA000 saw, ≥ 0xA000 square); wordt later de glijdende morph-positie. |
+| 40–47 | *gereserveerd* | per-stem expressie (pressure/velocity — Osmose/MPE), nog niet geïmplementeerd |
 
-Stem 0 = slots 0..3: backwards-compatible met de mono-versie.
+Per-noot pitchbend heeft geen eigen slot nodig: pitch is al een continue CV
+per stem — de brain moduleert gewoon het pitch-slot.
 
-**Voorstel-uitbreiding (nog niet geïmplementeerd): slots 32..39 =
-exciter/morph per stem** — één CV die de exciter kiest én later de
-wavetable-morph wordt:
-`0x0000..0x3FFF` = Karplus-Strong (pluk), `0x4000..0xFFFF` = wavetable,
-waarbij de positie binnen dat bereik later de morph-positie (saw→square→…)
-aanstuurt. Modulair-idiomatisch: gewoon een extra CV-bestemming, geen nieuw
-opcode of versie-bump nodig.
+## Globale controls ("de knoppen van het paneel")
 
-## GateSet (0x20) — slotId = voice (0..7)
+Eén slot per control, vanaf slot 48. De brain "draait aan een knop" door een
+CvSet naar dat slot te sturen (het ControllerBreakIn-mechanisme uit ADR 0009).
 
-`on`-byte: gate-niveau per stem. 0→1 flank = trigger (KS-pluk / WT-fase-reset);
-de amp-envelope van de wavetable volgt het gate-niveau (attack 0,7 ms /
-release 85 ms in de FPGA). Retrigger van een klinkende stem vereist dus
-gate 0 → 1 (de voice-allocator van de brain doet note-off vóór hergebruik,
-ADR 0011 — bevestigen).
+| Slot | Control | Betekenis |
+|---|---|---|
+| 48 | **snaar-damping** | uitsterftijd van de KS-pluk: 0x0000 = kort plukje (~0.996/omloop), 0xFFFF = bijna oneindige sustain. Default ≈ 2,9 s decay. |
+| 49+ | *vrij* | toekomstige globale instellingen |
 
-## Nog niet ondersteund (bewust, v1)
+## GateSet (opcode 0x20) — gate per stem
 
-- `CvSegment` (0x11): FPGA-side interpolatie komt later (ADR 0013 stelt dit
-  ook pas nodig bij hoge stemaantallen); tot die tijd `CvSet`.
-- `TriggerPulse` (0x21): GateSet volstaat voor de huidige exciters.
-- `CvInRequest/Report`: n.v.t., instrument heeft geen CV-uitgangen.
+Slot = stemnummer (0..7). De aan/uit-byte is het gate-niveau. Een 0→1-flank
+triggert de stem (KS: nieuwe pluk; wavetable: fase-reset). De amp-envelope van
+de wavetable volgt het gate-niveau (attack 0,7 ms / release 85 ms). Let op:
+een klinkende stem opnieuw aanslaan vereist gate 0 → 1 — de voice-allocator
+moet dus note-off sturen vóór hij een stem hergebruikt.
 
-## Pitch-afspraak (sluit ADR 0013 open question)
+## Niet (of nog niet) ondersteund
 
-De regel in ADR 0013 "reference note 69, 256 LSB = 1 semitoon" is verouderd.
-Geldend is doc/PITCH_CV.md (conform ADR 0014): dCV offset-binary, default-
-range 0..10 V @ 1 V/oct met 0 V = MIDI-noot 0, dus `note = (code·120)>>16`
-(≈546 LSB per semitoon). Brain moet deze map hanteren (of de range-config
-meesturen zodra die bestaat).
+- `CvSegment` (0x11): FPGA-side interpolatie — later, bij hoge update-rates
+  (per-stem expressie); tot die tijd volstaat CvSet (ADR 0013).
+- `TriggerPulse` (0x21): GateSet volstaat.
+- `CvInRequest/Report`: n.v.t. — de module heeft geen CV-uitgangen.
+- Status/display richting brain: hoort bij de "management messages"-laag die
+  MusicBrain (ADR 0009) nog moet definiëren. `Ping`→`Pong` werkt al.
 
 ## Elektrisch / timing
 
-- SCLK ≤ ~4–5 MHz bij 27 MHz sys_clk (2-FF sync + flankdetectie; testbenches
-  draaien 5 MHz). CS omkadert elk frame; CS hoog reset de parser.
-- MISO is hi-Z buiten CS (deelbaar); Pong-respons wordt in de vólgende
-  transactie uitgeklokt (eerst Ping-frame, dan 6 bytes lezen).
-- SPI-pinnen op de Tang Primer 20K Dock: nog te kiezen (PMOD) — zie
-  synth_top.cst, nu unconstrained.
+- SCLK ≤ ~4–5 MHz bij 27 MHz sys_clk (testbenches draaien 5 MHz).
+- CS omkadert elk frame; CS hoog reset de parser. MISO is hi-Z buiten CS.
+- Pong wordt in de transactie ná de Ping uitgeklokt (6 bytes lezen).
+- SPI-pinnen op de Tang Primer 20K Dock: nog te kiezen (PMOD; unconstrained
+  in synth_top.cst).
+
+## Nog vast te leggen aan de brain-kant
+
+1. Deze slotmap overnemen in de catalog (`ModuleDefinition`: poorten met
+   eventKind voice/global, voiceCount 8) en in ADR 0013 (sluit de twee open
+   questions: slotmap + pitch-schaal).
+2. Bevestigen dat de voice-allocator gate-off stuurt vóór stem-hergebruik.
+3. Een tweede module in dezelfde FPGA (bijv. een resonator-bank) krijgt later
+   gewoon een eigen blok, beginnend bij slot 128.
