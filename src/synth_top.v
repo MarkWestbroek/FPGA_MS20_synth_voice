@@ -342,10 +342,11 @@ module synth_top #(
                 env_k      = 32'h000A0000;  // 0.625
                 env_drive  = 32'h00280000;  // 2.5
             end
-            2'd3: begin  // dik
+            2'd3: begin  // dik — eindpunt 400 Hz: drones blijven vet
+                // (200 Hz maakte sustained WT-stemmen "distant/ambient")
                 env_g_open = 32'h00042D45;  // ~4000 Hz
-                env_g_end  = 32'h0000359E;  // ~200 Hz
-                env_g_step = 32'h000002B5;
+                env_g_end  = 32'h00006B3B;  // ~400 Hz
+                env_g_step = 32'h00000291;  // (open-eind)/375 → sweep ~0,5 s
                 env_k      = 32'h00060000;  // 0.375
                 env_drive  = 32'h00300000;  // 3.0
             end
