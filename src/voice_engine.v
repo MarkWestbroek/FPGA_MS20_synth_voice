@@ -94,8 +94,22 @@ module voice_engine (
 
     // ========================================================================
     // Delay-BRAM: 8 × 2048 × 18 bit (Q1.17)
+    //
+    // Strikt semi-dual-port (één schrijf- en één geregistreerde leespoort)
+    // zodat Gowin dit op BSRAM mapt: de FSM zet alléén d_raddr/d_waddr/
+    // d_wdata/d_we; alle geheugentoegang zit in dit ene proces.
     // ========================================================================
     (* ram_style = "block" *) reg signed [17:0] dmem [0:16383];
+
+    reg  [13:0]        d_raddr, d_waddr;
+    reg                d_we;
+    reg signed [17:0]  d_wdata;
+    reg signed [17:0]  d_q;
+
+    always @(posedge clk) begin
+        if (d_we) dmem[d_waddr] <= d_wdata;
+        d_q <= dmem[d_raddr];
+    end
 
     // ========================================================================
     // LFSR-ruis (vrijlopend), 18-bit Q1.17 sample ±1.0
@@ -108,18 +122,26 @@ module voice_engine (
 
     // ========================================================================
     // Wavetable-ROM: 2 golfvormen × 8 mips × 1024 × 16 bit (wavetable.hex)
+    // Eén geregistreerde leespoort (pROM in BSRAM), zelfde recept als dmem.
     // ========================================================================
     (* ram_style = "block" *) reg signed [15:0] wrom [0:16383];
     initial begin
         $readmemh("wavetable.hex", wrom);
     end
 
+    reg  [13:0]        w_raddr;
+    reg signed [15:0]  w_q;
+
+    always @(posedge clk) begin
+        w_q <= wrom[w_raddr];
+    end
+
     // ========================================================================
     // Gedeelde datapath — combinatorisch rond de cur_* werkregisters
     // ========================================================================
     reg [2:0]         v;          // huidige stem
-    reg signed [17:0] s0, s1;     // gelezen delay-samples (Q1.17)
-    reg signed [15:0] s0w, s1w;   // gelezen wavetable-samples
+    reg signed [17:0] s0;         // eerste delay-sample (tweede komt uit d_q)
+    reg signed [15:0] s0w;        // eerste wavetable-sample (tweede uit w_q)
     reg signed [31:0] cur_lp, cur_bp, cur_in;
     reg signed [32:0] vsum;       // som van de 2 oversample-suboutputs
     reg signed [31:0] sub0;
@@ -153,16 +175,19 @@ module voice_engine (
     // lineaire interpolatie + amp-envelope (Q1.16) → Q12.20.
     // <<3 i.p.v. <<5: WT-amplitude ~0.25 — in balans met de KS-pluk (~0.3),
     // en houdt de mix ruim binnen bereik bij meerdere sustained stemmen.
-    wire signed [16:0] wt_diff  = s1w - s0w;
+    // (tweede sample komt rechtstreeks uit de geregistreerde leespoort w_q)
+    wire signed [16:0] wt_diff  = w_q - s0w;
     wire signed [25:0] wt_dprod = wt_diff * $signed({1'b0, wt_frac});
-    wire signed [16:0] wt_lerp  = s0w + (wt_dprod >>> 8);
+    wire signed [18:0] wt_sum   = s0w + $signed(wt_dprod[25:8]);
+    wire signed [16:0] wt_lerp  = wt_sum[16:0];   // waarde ligt tussen s0w en w_q
     wire signed [31:0] wt_q20   = {{13{wt_lerp[15]}}, wt_lerp[15:0], 3'b000};
     wire signed [49:0] wt_aprod = wt_q20 * $signed({1'b0, amp[v]});
     wire signed [31:0] wt_out   = wt_aprod[47:16];
 
     // KS: Q1.17 → Q12.20 (<<3), moving average + damping
+    // (s1 komt rechtstreeks uit de geregistreerde leespoort d_q)
     wire signed [31:0] s0_q20     = {{11{s0[17]}}, s0, 3'b000};
-    wire signed [31:0] s1_q20     = {{11{s1[17]}}, s1, 3'b000};
+    wire signed [31:0] s1_q20     = {{11{d_q[17]}}, d_q, 3'b000};
     wire signed [32:0] comp_sum   = s0_q20 + s1_q20;
     wire signed [31:0] comp_avg   = comp_sum >>> 1;
     wire signed [63:0] comp_damped= $signed(comp_avg) * $signed(ks_damping);
@@ -238,6 +263,8 @@ module voice_engine (
     reg [2:0]  fill_v;
     reg [10:0] fill_idx;
     reg signed [35:0] mix_acc, str_acc;
+    wire signed [35:0] mix_sh = mix_acc >>> 2;   // mix = som van 8 stemmen ÷ 4
+    wire signed [35:0] str_sh = str_acc >>> 2;
     reg        skip;            // huidige stem niet actief (fill/uninitialized)
 
     // laagste gezette bit (prioriteits-encoder voor de fill-wachtrij)
@@ -270,10 +297,11 @@ module voice_engine (
             string_out <= 32'sd0;
             mix_out    <= 32'sd0;
             skip       <= 1'b0;
-            s0 <= 18'sd0; s1 <= 18'sd0;
+            s0 <= 18'sd0; s0w <= 16'sd0;
             cur_lp <= 32'sd0; cur_bp <= 32'sd0; cur_in <= 32'sd0;
             vsum <= 33'sd0; sub0 <= 32'sd0;
-            s0w <= 16'sd0; s1w <= 16'sd0;
+            d_raddr <= 14'd0; d_waddr <= 14'd0; d_wdata <= 18'sd0; d_we <= 1'b0;
+            w_raddr <= 14'd0;
             for (k = 0; k < NV; k = k + 1) begin
                 ptr[k]         <= 11'd0;
                 initialized[k] <= 1'b0;
@@ -286,6 +314,8 @@ module voice_engine (
                 amp[k]         <= 17'd0;
             end
         end else begin
+            d_we <= 1'b0;      // default: geen write (states zetten 'm expliciet)
+
             // ---- tick-start (vanuit WAIT of FILL): stemmen-ronde beginnen ----
             if (ce) begin
                 trig_l  <= trig;
@@ -313,12 +343,15 @@ module voice_engine (
                     S_WAIT: ;   // wachten op ce
 
                     // ---- stem v ----
+                    // Geheugentiming: leesadres in cyclus N gezet → d_q/w_q
+                    // geldig in cyclus N+2 (adres- én dataregister in de BRAM).
                     S_VST: begin
                         cur_lp <= lp_r[v];
                         cur_bp <= bp_r[v];
                         if (wt_en[v]) begin
-                            skip  <= 1'b0;
-                            state <= S_W1;             // wavetable-exciter
+                            skip    <= 1'b0;
+                            w_raddr <= wt_addr0;       // schedule read sample[idx]
+                            state   <= S_W1;
                         end else if (!initialized[v]) begin
                             // stil (wordt gevuld of nooit getriggerd): filter overslaan
                             skip   <= 1'b1;
@@ -326,23 +359,24 @@ module voice_engine (
                             cur_in <= 32'sd0;
                             state  <= S_ENV;
                         end else begin
-                            skip  <= 1'b0;
-                            state <= S_R1;             // Karplus-Strong exciter
+                            skip    <= 1'b0;
+                            d_raddr <= {v, cur_ptr};   // schedule read d[ptr]
+                            state   <= S_R1;
                         end
                     end
 
                     // ---- WT-oscillator: 2 reads + lerp/amp ----
                     S_W1: begin
-                        s0w   <= wrom[wt_addr0];
-                        state <= S_W2;
+                        w_raddr <= wt_addr1;           // schedule read sample[idx+1]
+                        state   <= S_W2;
                     end
 
                     S_W2: begin
-                        s1w   <= wrom[wt_addr1];
+                        s0w   <= w_q;                  // sample[idx] binnen
                         state <= S_WC;
                     end
 
-                    S_WC: begin
+                    S_WC: begin                        // w_q = sample[idx+1]
                         cur_in   <= wt_out;
                         str_acc  <= str_acc + $signed(wt_out);
                         phase[v] <= phase[v] + cur_phinc;
@@ -350,17 +384,19 @@ module voice_engine (
                     end
 
                     S_R1: begin
-                        s0    <= dmem[{v, cur_ptr}];
-                        state <= S_R2;
+                        d_raddr <= {v, next_ptr};      // schedule read d[ptr+1]
+                        state   <= S_R2;
                     end
 
                     S_R2: begin
-                        s1    <= dmem[{v, next_ptr}];
+                        s0    <= d_q;                  // d[ptr] binnen
                         state <= S_KS;
                     end
 
-                    S_KS: begin
-                        dmem[{v, cur_ptr}] <= comp_18;
+                    S_KS: begin                        // d_q = d[ptr+1]
+                        d_we    <= 1'b1;               // writeback d[ptr] = comp
+                        d_waddr <= {v, cur_ptr};
+                        d_wdata <= comp_18;
                         cur_in  <= comp_new;
                         str_acc <= str_acc + $signed(comp_new);
                         ptr[v]  <= next_ptr;
@@ -416,15 +452,19 @@ module voice_engine (
                     end
 
                     // ---- ronde klaar: outputs + evt. fill-werk ----
+                    // (÷4; waarden zijn door de filter-clamps begrensd op ±16/stem,
+                    //  dus de som/4 past ruim in 32 bit — slice is expliciet)
                     S_MIX: begin
-                        mix_out    <= mix_acc >>> 2;    // som van 8 stemmen ÷ 4
-                        string_out <= str_acc >>> 2;
+                        mix_out    <= mix_sh[31:0];
+                        string_out <= str_sh[31:0];
                         state      <= (fill_busy || fill_req != 8'd0) ? S_FILL : S_WAIT;
                     end
 
                     S_FILL: begin
                         if (fill_busy) begin
-                            dmem[{fill_v, fill_idx}] <= noise18;
+                            d_we    <= 1'b1;
+                            d_waddr <= {fill_v, fill_idx};
+                            d_wdata <= noise18;
                             if (fill_idx == 11'd2047) begin
                                 fill_busy           <= 1'b0;
                                 initialized[fill_v] <= 1'b1;
