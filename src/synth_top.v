@@ -460,9 +460,11 @@ module synth_top #(
             assign rev_wet = 32'sd0;
         end
 
+        // Wet-niveaus: de FX werken intern op ±4.0-niveau terwijl de droge
+        // mix rond 0,1–0,25 leeft (DAC-vol = 0,25) — fors terugschalen dus.
         assign fx_out = $signed(filter_out)
-                      + ($signed(echo_wet) >>> 1)
-                      + ($signed(rev_wet)  >>> 1);
+                      + ($signed(echo_wet) >>> 4)
+                      + ($signed(rev_wet)  >>> 3);
     end else begin : g_no_fx
         assign fx_out = filter_out;
     end endgenerate
