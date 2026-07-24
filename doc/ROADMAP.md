@@ -54,6 +54,13 @@ Zie `D:\Git\Muziek\MusicBrain` (ADR 0010/0011, `doc/protocols/spi-frame.md`,
       (FPGA = type-1 module, uitwisselbaar met analoog). Default 0–10V / 1 V/oct /
       0V=MIDI 0 → `note = (code·120)>>16`. Geen module-eigen notenconventie.
 - [ ] Muzikale schaling van de cutoff/reson/drive-CV verfijnen met de brain.
+      **Besluit brain-kant (2026-07-24): cutoff is pitch-equivalent** (16-bit
+      dCV, zelfde conventie als pitch) → FPGA moet cutoff exponentieel mappen
+      (code → fc → g, tabel zoals note_phinc) i.p.v. quasi-lineair; geeft
+      meteen nette filter-keytracking (cutoff-slot = pitch + offset).
+- [ ] Slotmap-conventie voor **globale** (niet-per-stem) FX-parameters
+      (echo-tijd/feedback/wow, reverb-size/damp, sends) — afstemmen met
+      Cortex ADR 0015; per-stem blokken-van-8 dekken dit niet.
 - [ ] (later) CvSegment-interpolatie voor vloeiende cutoff bij hoge stem-aantallen.
 
 ### 🔶 Fase 3 — Hardware bring-up: bitstream + audio uit — VOORBEREID

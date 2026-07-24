@@ -4,10 +4,9 @@
 set repo [file normalize [file join [file dirname [info script]] .. ..]]
 set outd [file join [file dirname [info script]] build]
 
-foreach mod {tape_echo fdn_reverb} {
+foreach mod {tape_echo fdn_reverb fft2048} {
     create_project -in_memory -part xc7s50csga324-1
     read_verilog [list $repo/src/$mod.v $repo/src/tanh_lut.v]
-    add_files $repo/tanh_table.hex
     synth_design -mode out_of_context -top $mod
     create_clock -name clk -period 37.037 [get_ports clk]
     report_utilization -file $outd/fx_${mod}_util.rpt
