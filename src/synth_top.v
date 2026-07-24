@@ -24,7 +24,12 @@ module synth_top #(
     parameter integer DEMO_ONLY  = 1,
     // DAC-keuze: 0 = PT8211 (LSB-justified; Tang Primer 20K Dock),
     //            1 = standaard I2S (PCM5102 e.d.; Arty S7-poort).
-    parameter integer DAC_I2S    = 0
+    parameter integer DAC_I2S    = 0,
+    // Effectsectie (generate-gated; default uit → Tang-build identiek).
+    // Kosten indien aan (S7-50): echo 19 BRAM/13 DSP, reverb 9 BRAM/10 DSP —
+    // past niet op de GW2A naast de synth (daar nog 9/46 BSRAM vrij).
+    parameter integer FX_ECHO    = 0,
+    parameter integer FX_REVERB  = 0
 ) (
     input  wire         sys_clk,      // systeemklok (zie SYS_CLK_HZ)
     input  wire         sys_rst_n,    // Active-low reset
@@ -419,10 +424,54 @@ module synth_top #(
     );
 
     // ========================================================================
+    // EFFECTSECTIE (optioneel): echo op de droge mix; reverb op droog + echo
+    // (dub-routing). Wet-niveaus als shifts: echo ÷2, reverb ÷2.
+    // Vaste parameters voorlopig — worden later CV-slots (Fase E).
+    // ========================================================================
+    wire signed [31:0] fx_out;
+
+    generate if (FX_ECHO || FX_REVERB) begin : g_fx
+        wire signed [31:0] echo_wet, rev_wet;
+
+        if (FX_ECHO) begin : g_echo
+            tape_echo u_echo (
+                .clk(sys_clk), .rst(rst), .ce(sample_clk_tick),
+                .audio_in (filter_out),
+                .wet_out  (echo_wet),
+                .delay_tgt(24'd4096000),          // 16000 samples = 0,333 s
+                .feedback (32'sd471860),          // 0.45
+                .damp_a   (32'sd367002),          // 0.35
+                .wow_depth(16'd640),              // 2,5 samples
+                .wow_phinc(24'd315)               // ~0,9 Hz
+            );
+        end else begin : g_no_echo
+            assign echo_wet = 32'sd0;
+        end
+
+        if (FX_REVERB) begin : g_rev
+            fdn_reverb u_rev (
+                .clk(sys_clk), .rst(rst), .ce(sample_clk_tick),
+                .audio_in ($signed(filter_out) + $signed(echo_wet)),
+                .wet_out  (rev_wet),
+                .g        (32'sd2569011),         // 2.45 → RT ~1,8 s
+                .damp_a   (32'sd629146)           // 0.6
+            );
+        end else begin : g_no_rev
+            assign rev_wet = 32'sd0;
+        end
+
+        assign fx_out = $signed(filter_out)
+                      + ($signed(echo_wet) >>> 1)
+                      + ($signed(rev_wet)  >>> 1);
+    end else begin : g_no_fx
+        assign fx_out = filter_out;
+    end endgenerate
+
+    // ========================================================================
     // UITGANGEN — PT8211. De engine-mix is al ÷4; >>>3 hier geeft een enkele
     // stem ~-10 dBFS en laat akkoorden optellen (saturatie vangt extremen).
     // ========================================================================
-    wire signed [31:0] dac_scaled = filter_out >>> 3;
+    wire signed [31:0] dac_scaled = fx_out >>> 3;
     wire signed [15:0] dac_sample =
         (dac_scaled >  32'sd32767)  ?  16'sd32767  :
         (dac_scaled < -32'sd32768)  ? -16'sd32768  :

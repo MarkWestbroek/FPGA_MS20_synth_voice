@@ -71,7 +71,9 @@ module synth_top_arty (
         .SYS_CLK_HZ (27_000_000),
         .SAMPLE_HZ  (48_000),
         .DEMO_ONLY  (0),             // SW0 kiest: 1=demo-arpeggiator, 0=SPI-CV's
-        .DAC_I2S    (1)              // PCM5102A wil standaard I2S, geen PT8211-LSBJ
+        .DAC_I2S    (1),             // PCM5102A wil standaard I2S, geen PT8211-LSBJ
+        .FX_ECHO    (1),             // band-echo 0,33s (ruimte zat op de S7-50)
+        .FX_REVERB  (1)              // FDN-galm RT ~1,8s
     ) u_synth (
         .sys_clk    (clk27),
         .sys_rst_n  (sys_rst_n),
