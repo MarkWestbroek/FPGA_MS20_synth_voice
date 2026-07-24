@@ -2,8 +2,8 @@
 // TAPE_ECHO_TB — zelf-checkende testbench + audio-render
 //
 // Programma (3 s @ 48 kHz):
-//   t=0,30 s  impuls (2.0)          → echo's op 0,55 / 0,80 / 1,05 s …
-//   t=1,50 s  korte 220 Hz-burst    → ritmische echo-staart (voor het oor)
+//   t=0,30 s  impuls (2.0)                     → echo's op 0,55 / 0,80 … s
+//   t=1,50 s  55 Hz-blok (A1), 0,4 s, wegstervend → dub-achtige echo-staart
 //
 // Instelling: delay 0,25 s, feedback 0,55, damping 0,35, wow 3 samples @0,8 Hz.
 // SLEW_Q8=65536 → leeskop springt direct (deterministische check-vensters);
@@ -51,6 +51,7 @@ module tape_echo_tb;
     integer tick = 0;
     integer i;
     reg signed [31:0] burst;
+    reg signed [63:0] btmp;
 
     // check-administratie (Q12.20)
     integer pk_pre = 0;      // max|wet| in [0,32..0,53 s]  (moet stil zijn)
@@ -66,9 +67,11 @@ module tape_echo_tb;
         // input-programma
         if (tick == T_IMP)
             audio_in <= 32'sd2097152;                       // impuls 2.0
-        else if (tick >= 72000 && tick < 73200) begin       // 1,5 s: 220Hz-burst, 25 ms
-            burst = ((tick / 109) & 1) ? 32'sd524288 : -32'sd524288;  // ±0.5 blok
-            audio_in <= burst;
+        else if (tick >= 72000 && tick < 91200) begin       // 1,5 s: A1-blok, 0,4 s
+            // ±0.6 blokgolf @55 Hz (halve periode 436 ticks), lineair wegstervend
+            btmp  = 64'sd629146 * (64'sd91200 - tick);
+            burst = btmp / 64'sd19200;
+            audio_in <= (((tick - 72000) / 436) & 1) ? -burst : burst;
         end else
             audio_in <= 32'sd0;
 
