@@ -1,0 +1,7 @@
+Eight-voice physical-modeling synth voice on an FPGA, played by Cortex as a
+regular instrument on the SPI bus. Each voice is a Karplus-Strong string with
+a morphing wavetable exciter, running through an MS-20-style filter with
+diode saturation and drive. Pitch, gate and filter arrive as per-voice CV
+over the established frame protocol, so to the brain it looks no different
+from an analog module — it just happens to be 20 thousand logic cells
+pretending to be strings.

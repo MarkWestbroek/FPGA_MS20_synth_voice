@@ -145,6 +145,11 @@ module voice_engine (
     reg signed [31:0] cur_lp, cur_bp, cur_in;
     reg signed [32:0] vsum;       // som van de 2 oversample-suboutputs
     reg signed [31:0] sub0;
+    // SVF-pijplijnregisters: de drie mults (k·tanh, g·hp, g·bp) pasten niet in
+    // één 27MHz-cyclus (Vivado WNS -5,3ns; Gowin haalde het ook maar nét niet).
+    reg signed [31:0] hp_r;       // hp na stap A
+    reg signed [31:0] bp_nx;      // bp_next na stap B
+    reg               sub;        // 0 = oversample-substap 1, 1 = substap 2
 
     // ---- WT-oscillator: mip-keuze uit de MSB-positie van de fase-increment
     // (mip m dekt inc in [2^(19+m), 2^(20+m)); conservatief clampen op 7)
@@ -221,16 +226,19 @@ module voice_engine (
     wire signed [31:0] lut_tanh;
     tanh_lut u_tanh (.clk(clk), .addr(lut_addr), .data_out(lut_tanh));
 
+    // Stap A (S_FA): hp uit k·tanh — 1 mult per cyclus, dan registreren
     wire signed [63:0] prod_k    = $signed(eff_k) * $signed(lut_tanh);
     wire signed [31:0] feedback  = prod_k[51:20];
     wire signed [31:0] hp        = $signed(cur_in) - $signed(cur_lp) - $signed(feedback);
 
-    wire signed [63:0] prod_g_hp = $signed(eff_g) * $signed(hp);
+    // Stap B (S_FB): bp_next uit geregistreerde hp_r
+    wire signed [63:0] prod_g_hp = $signed(eff_g) * $signed(hp_r);
     wire signed [44:0] bp_sum    = $signed(cur_bp) + $signed(prod_g_hp[63:20]);
     wire signed [31:0] bp_next   = (bp_sum > SAT_MAX) ? SAT_MAX :
                                    (bp_sum < SAT_MIN) ? SAT_MIN : bp_sum[31:0];
 
-    wire signed [63:0] prod_g_bp = $signed(eff_g) * $signed(bp_next);
+    // Stap C (S_FC): lp_next uit geregistreerde bp_nx
+    wire signed [63:0] prod_g_bp = $signed(eff_g) * $signed(bp_nx);
     wire signed [44:0] lp_sum    = $signed(cur_lp) + $signed(prod_g_bp[63:20]);
     wire signed [31:0] lp_next   = (lp_sum > SAT_MAX) ? SAT_MAX :
                                    (lp_sum < SAT_MIN) ? SAT_MIN : lp_sum[31:0];
@@ -245,10 +253,10 @@ module voice_engine (
     localparam S_R1   = 4'd2;   // lees d[ptr]
     localparam S_R2   = 4'd3;   // lees d[ptr+1]
     localparam S_KS   = 4'd4;   // KS compute + writeback
-    localparam S_FS1  = 4'd5;   // tanh-LUT settle (substap 1)
-    localparam S_FC1  = 4'd6;   // SVF substap 1
-    localparam S_FS2  = 4'd7;   // tanh-LUT settle (substap 2)
-    localparam S_FC2  = 4'd8;   // SVF substap 2
+    localparam S_FS   = 4'd5;   // tanh-LUT settle (per substap; `sub` telt 0/1)
+    localparam S_FA   = 4'd6;   // SVF stap A: hp        (mult k·tanh)
+    localparam S_FB   = 4'd7;   // SVF stap B: bp_next   (mult g·hp)
+    localparam S_FC   = 4'd8;   // SVF stap C: lp_next   (mult g·bp) + substap-acc
     localparam S_ENV  = 4'd9;   // mix-acc + state-writeback + envelope
     localparam S_MIX  = 4'd10;  // outputs bijwerken
     localparam S_FILL = 4'd11;  // achtergrond-fill van delay-lijnen
@@ -300,6 +308,7 @@ module voice_engine (
             s0 <= 18'sd0; s0w <= 16'sd0;
             cur_lp <= 32'sd0; cur_bp <= 32'sd0; cur_in <= 32'sd0;
             vsum <= 33'sd0; sub0 <= 32'sd0;
+            hp_r <= 32'sd0; bp_nx <= 32'sd0; sub <= 1'b0;
             d_raddr <= 14'd0; d_waddr <= 14'd0; d_wdata <= 18'sd0; d_we <= 1'b0;
             w_raddr <= 14'd0;
             for (k = 0; k < NV; k = k + 1) begin
@@ -380,7 +389,7 @@ module voice_engine (
                         cur_in   <= wt_out;
                         str_acc  <= str_acc + $signed(wt_out);
                         phase[v] <= phase[v] + cur_phinc;
-                        state    <= S_FS1;
+                        state    <= S_FS;
                     end
 
                     S_R1: begin
@@ -400,25 +409,33 @@ module voice_engine (
                         cur_in  <= comp_new;
                         str_acc <= str_acc + $signed(comp_new);
                         ptr[v]  <= next_ptr;
-                        state   <= S_FS1;
+                        state   <= S_FS;
                     end
 
-                    S_FS1: state <= S_FC1;          // lut_tanh geldig maken
+                    S_FS: state <= S_FA;            // lut_tanh geldig maken
 
-                    S_FC1: begin
-                        cur_lp <= lp_next;
-                        cur_bp <= bp_next;
-                        sub0   <= sub_out;
-                        state  <= S_FS2;
+                    S_FA: begin
+                        hp_r  <= hp;
+                        state <= S_FB;
                     end
 
-                    S_FS2: state <= S_FC2;
+                    S_FB: begin
+                        bp_nx <= bp_next;
+                        state <= S_FC;
+                    end
 
-                    S_FC2: begin
+                    S_FC: begin
                         cur_lp <= lp_next;
-                        cur_bp <= bp_next;
-                        vsum   <= $signed(sub0) + $signed(sub_out);
-                        state  <= S_ENV;
+                        cur_bp <= bp_nx;
+                        if (!sub) begin             // substap 1 klaar → substap 2
+                            sub0  <= sub_out;
+                            sub   <= 1'b1;
+                            state <= S_FS;          // bp veranderd → LUT opnieuw settelen
+                        end else begin              // substap 2 klaar → decimatie
+                            vsum  <= $signed(sub0) + $signed(sub_out);
+                            sub   <= 1'b0;
+                            state <= S_ENV;
+                        end
                     end
 
                     S_ENV: begin

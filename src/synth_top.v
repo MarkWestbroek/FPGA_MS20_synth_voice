@@ -21,7 +21,10 @@ module synth_top #(
     parameter integer SYS_CLK_HZ = 27_000_000,
     parameter integer SAMPLE_HZ  = 48_000,
     // DEMO_ONLY=1: forceer de interne demo-arpeggiator (negeer de demo_mode-pin).
-    parameter integer DEMO_ONLY  = 1
+    parameter integer DEMO_ONLY  = 1,
+    // DAC-keuze: 0 = PT8211 (LSB-justified; Tang Primer 20K Dock),
+    //            1 = standaard I2S (PCM5102 e.d.; Arty S7-poort).
+    parameter integer DAC_I2S    = 0
 ) (
     input  wire         sys_clk,      // systeemklok (zie SYS_CLK_HZ)
     input  wire         sys_rst_n,    // Active-low reset
@@ -445,16 +448,29 @@ module synth_top #(
 
     wire signed [15:0] dac_out = audio_en ? dac_sample : 16'sd0;
 
-    pt8211_tx u_dac (
-        .clk      (sys_clk),
-        .rst      (rst),
-        .sample_in(dac_out),
-        .en       (audio_en),
-        .hp_bck   (hp_bck),
-        .hp_ws    (hp_ws),
-        .hp_din   (hp_din),
-        .pa_en    (pa_en)
-    );
+    generate if (DAC_I2S == 0) begin : g_pt8211
+        pt8211_tx u_dac (
+            .clk      (sys_clk),
+            .rst      (rst),
+            .sample_in(dac_out),
+            .en       (audio_en),
+            .hp_bck   (hp_bck),
+            .hp_ws    (hp_ws),
+            .hp_din   (hp_din),
+            .pa_en    (pa_en)
+        );
+    end else begin : g_i2s
+        // PCM5102-pad: standaard I2S, mute loopt al via dac_out (audio_en).
+        i2s_tx #(.DIV(18)) u_dac (      // 27 MHz/18 = 1,5 MHz BCLK
+            .clk      (sys_clk),
+            .rst      (rst),
+            .sample_in(dac_out),
+            .bclk     (hp_bck),
+            .lrck     (hp_ws),
+            .sdata    (hp_din)
+        );
+        assign pa_en = audio_en;
+    end endgenerate
 
     // LED-heartbeat (~0.8 Hz @27MHz)
     reg [24:0] hb_cnt;

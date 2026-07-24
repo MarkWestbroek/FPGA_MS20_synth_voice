@@ -21,11 +21,15 @@ __pycache__/
 dsim.log
 metrics.db
 
-# Environment files
+# Environment files (site.env bevat het Imprint-ingest-token — nooit committen)
 dsim.env
+site.env
 
 # IDE / OS
 .vs/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Vivado build output (Arty S7)
+boards/arty-s7/build/
