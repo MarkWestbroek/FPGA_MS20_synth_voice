@@ -77,21 +77,35 @@ Architectuur (klassiek Space-Echo-model):
   zelf-oscillatie is het halve instrument.
 
 Stappen:
-- [ ] **C1 — BRAM-versie**: mono, één kop, max ~1 s (768 Kb). Bewijst het
-      audio-pad en de interpolatie zonder DDR3-complexiteit; sim in DSim met
-      WAV-render.
+- [x] **C1 — BRAM-versie**: `src/tape_echo.v` (branch fx-echo-reverb) — mono,
+      één fractionele kop, 0,68 s band, slew-pitchzwiep, wow-LFO, tanh-sat +
+      damping in het feedbackpad. Zelf-checkende tb 4/4 PASS, WAV-render via
+      `scripts/cols2wav.py`. OOC-synthese S7-50: 19 BRAM, 13 DSP, WNS +5,9 ns
+      @27 MHz. Integratie in synth_top volgt (send + FX-slotblok).
 - [ ] **C2 — DDR3-versie**: MIG-IP + simpele FIFO-poorten (read-ahead burst,
       audio vraagt maar ~384 KB/s stereo — de MIG verveelt zich). Minuten aan
       band, 3 koppen, stereo. CDC tussen MIG `ui_clk` en audio-domein via
       async-FIFO's. Voor DSim: gedrags-model achter dezelfde poort-interface.
 
 ### Fase D — FDN-reverb
-- [ ] 8×8 feedback-delay-network, Hadamard-matrix (shift/add, geen DSP),
-      priemgetal-lengtes, per lijn één-pool damping, 2 allpass-diffusers aan de
-      ingang. Budget: ~32k samples totaal ≈ 16 RAMB36 — past naast wavetables
-      en C1-echo; groeit desgewenst mee naar DDR3.
+- [x] `src/fdn_reverb.v` (branch fx-echo-reverb): 8×8 FDN, Hadamard via
+      butterfly-adders (÷8 → stabiel voor g<√8), priemlengtes 1031..2011 in
+      één gedeelde 8×2048-BRAM, per lijn één-pool damping in de lus.
+      Zelf-checkende tb 5/5 PASS (RT60 ≈ 2,5 s bij g=2,6/damp=0,7, dichte
+      staart, geen overflow). OOC-synthese: 9 BRAM, 10 DSP, WNS +19,1 ns.
+      Let op: staart zakt na ~2 s onder de 18-bit opslagvloer — voor langere
+      RT's t.z.t. 24-bit lijnen of noise-floor-dither overwegen.
+- [ ] Allpass-diffusers aan de ingang (dichtere early reflections).
 - [ ] Send-architectuur: per stem een reverb/echo-send (slot in het contract),
       FX-return op de mix.
+
+### Fase D+ — Convolution reverb (stretch goal)
+Impulse-response-galm (IR-WAV's, bijv. OpenAIR) kán op dit bord: het bestand
+is het probleem niet (4 s stereo ≈ 2,3 MB, past honderden keren in DDR3),
+directe FIR wél (~9 GMAC/s en ~19 GB/s coëfficiëntenstroom — kansloos).
+De route is **gepartitioneerde FFT-convolutie** (overlap-save, Xilinx FFT-IP,
+IR-spectra in DDR3 à ~40 MB/s, latency = 1 blok ≈ 10–20 ms). Serieus project;
+pas na C2/E. IR-upload via SPI vanuit Cortex of UART vanaf de PC.
 
 ### Fase E — Cortex-integratie + extra's
 - [ ] FX-parameters als extra CV-slotblok (echo-tijd, feedback, wow-diepte,
