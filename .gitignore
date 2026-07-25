@@ -33,3 +33,11 @@ Thumbs.db
 
 # Vivado build output (Arty S7)
 boards/arty-s7/build/
+
+# Vivado scratch (project-root rommel bij batch-runs)
+.Xil/
+clockInfo.txt
+
+# FFT-testbench dumps (regenereerbaar: dsim + scripts/fft_check.py)
+fft_fwd_out.txt
+fft_inv_out.txt

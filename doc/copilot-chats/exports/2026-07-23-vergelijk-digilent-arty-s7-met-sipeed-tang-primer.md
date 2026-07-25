@@ -732,3 +732,372 @@ Daarmee is de volledige regressie-suite groen op de gepijplijnde engine:
 
 Alles staat nu klaar voor hardware: zodra de Arty aan de micro-USB hangt (en de PCM5102 bedraad is met de jumpers gebrugd), is één "flash maar" genoeg.
 
+---
+
+## 👤 Gebruiker (18)
+
+ik moet de DAC nog solderen, maar: flash maar
+> 🔧 `Bash` — Flash the Arty S7-50 with the synth bitstream
+
+**🤖 Claude:**
+
+🎉 **Geflasht — je Spartan-7 draait nu de MS-20 synth!** De "End of startup status: HIGH" betekent dat de FPGA de bitstream geaccepteerd heeft en live is.
+
+Wat je nú al moet zien op het bord:
+- **LED1 continu aan** = de MMCM heeft lock (100 → 27 MHz klok loopt)
+- **LED0 knippert** (~0,8 Hz hartslag) = de synth-klok tikt
+
+Als beide kloppen, is de hele keten — MMCM, engine, pijplijn — functioneel op echt silicium.
+
+Zodra je DAC gesoldeerd is (denk aan de vier jumpers op de achterkant: 1→L, 2→L, **3→H**, 4→L — vooral die derde, anders blijft hij gemuted):
+1. PCM5102 op **Pmod JA** volgens de [README-tabel](boards/arty-s7/README.md) (BCK/LCK/DIN/SCK op pins 1-4, GND op 5, VIN op 3V3/pin 6)
+2. **SW0 omhoog** = demo-arpeggiator (zelfde 8-stemmige demo als de Tang)
+3. SW1 laten staan (omhoog = mute), SW2 = wah aan, BTN1 = wah-niveau
+
+De bitstream blijft trouwens alleen in de FPGA tot de stroom eraf gaat — na een power-cycle even opnieuw "flash maar" zeggen (of later zetten we hem in de QSPI-flash zodat hij vanzelf opstart).
+
+Ondertussen kan ik alvast committen als je wilt: de pijplijn-fix + DAC-parameter in `src/`, de hele `boards/arty-s7/`-map, het plan-doc en de site-content — het is nu een mooi afgerond geheel met alle sims groen.
+
+---
+
+## 👤 Gebruiker (19)
+
+ja, de LED knippert
+wat is omhoog voor de switches? Naar links of naar rechts? Zie @doc/hardware/Digilent Arty S7/digilent switches and buttons.jpg
+> 🔧 `Read` — e:\Dev\Gowin\MS20_synth_voice\doc\hardware\Digilent Arty S7\digilent switches and buttons.jpg
+> 🔧 `Bash` — Stage the Arty port, pipeline fix and site content
+> 🔧 `Bash` — Unstage Vivado build output and gitignore it
+
+**🤖 Claude:**
+
+Even je nieuwe foto bekijken:
+> 🔧 `Read` — e:\Dev\Gowin\MS20_synth_voice\doc\hardware\Digilent Arty S7\digilent-switches-and-buttons.jpg
+> 🔧 `Bash` — Commit the Arty port, pipeline fix, docs and photos
+> 🔧 `Bash` — List renamed hardware folders and untracked files
+> 🔧 `Bash` — Commit Arty port, pipeline fix, docs and hardware photos
+> 🔧 `Edit` — C:\Users\User\.claude\projects\e--Dev-Gowin-MS20-synth-voice\memory\arty-s7-50-board.md
+
+**🤖 Claude:**
+
+Alles is rond. De samenvatting van waar we staan:
+
+**Gecommit (`ecac3ab`)**: de complete Arty-poort ([boards/arty-s7/](boards/arty-s7/)), de SVF-pijplijn-fix in de gedeelde RTL, de `DAC_I2S`-parameter, het [uitbouwplan](doc/ARTY_S7_PLAN.md), de site-content en alle hardware-foto's (inclusief je hernoemde `Digilent-Arty-S7`-map). De Vivado-buildmap is netjes gitignored, net als `site.env`.
+
+**Fase A is daarmee feitelijk klaar op één draadje na**: het bord draait aantoonbaar (heartbeat + MMCM-lock, door jou visueel bevestigd), timing is ruim groen, alle sims slagen, en de klank-pariteitscheck wacht alleen nog op jouw soldeerbout voor de PCM5102. Schuifjes-spiekbriefje: aan = richting de FPGA-chip; SW0 aan voor de demo, SW1 **uit** laten (aan = mute).
+
+Als de DAC eraan zit en je de demo gehoord hebt, liggen deze vervolgstappen klaar in het plan:
+- **QSPI-flash**: bitstream persistent maken zodat hij na een power-cycle vanzelf opstart (kleine toevoeging aan `build.tcl`/`program.tcl`);
+- **Fase B**: klok naar ~98 MHz, 16 stemmen, 4× oversampling — de pijplijn die we vandaag bouwden is daar al op voorbereid;
+- en daarna de leuke dingen: tape-echo en reverb.
+
+Veel soldeerplezier — ik hoor het (letterlijk) wel als de eerste noten klinken!
+
+---
+
+## 👤 Gebruiker (20)
+
+ik heb vandaag waarschijnlijk nog geen tijd om al te solderen, al ben ik razend benieuwd.
+
+Maar zou je al verder kunnen met een van de andere dingen, eventueel op een aparte branch? Bijv. de tape-echo en reverb?
+
+Is een reverb waar je een standaard formaat - hoe heten die files waar men de acoustiek van een ruimte heel precies gemeten heeft, een soort 'samplen' van de reflectie-eigenschappen - "galm" in kunt laden mogelijk op iets als dit? (convolution / response files?)
+
+Of zijn dat onmogelijk grote bestanden?
+
+**🤖 Claude:**
+
+Goed plan — ik ga op een aparte branch aan de slag met de tape-echo en de FDN-reverb; die kan ik volledig in DSim bouwen en verifiëren (met WAV-renders om te beluisteren), en tegen de Arty-toolchain aan synthetiseren voor timing/resources. Solderen kan wanneer jij tijd hebt.
+
+Maar eerst je convolutie-vraag, want die is leuk:
+
+## Convolution reverb / impulse responses op dit bord?
+
+Die bestanden heten **impulse responses (IR's)** — inderdaad het "samplen" van een ruimte: je vuurt een klik of sweep af in een kerk of studio en neemt de reflecties op (bekende bibliotheken: OpenAIR, Altiverb, EchoThief). Het zijn gewone WAV-bestanden.
+
+**De bestandsgrootte is het probleem níet.** Een royale kerkgalm van 4 seconden stereo/48 kHz/24-bit is ~2,3 MB — daar passen er ruim honderd van in de 256 MB DDR3. Het echte probleem is **rekenstructuur**:
+
+- *Naïeve* convolutie = per uitgangssample de hele IR doorrekenen: 4 s IR = 192.000 multiply-adds **per sample**, ×48.000 samples/s ≈ 9 GMAC/s per kanaal. De 120 DSP's van de S7-50 halen dat theoretisch nog nét (~24 GMAC/s op 200 MHz)… maar de coëfficiënten-stroom uit DDR3 zou ~19 GB/s vragen, en het geheugen levert ~1,3 GB/s. Kansloos dus.
+- De standaardoplossing (zo doen plugins het ook): **gepartitioneerde FFT-convolutie** — de IR in blokken knippen, alles in het frequentiedomein vermenigvuldigen (overlap-save). Dan zakt de rekenlast naar iets dat comfortabel past, en de DDR3-bandbreedte wordt ~40 MB/s: triviaal. Xilinx levert gratis een FFT-core; blijft over: de orkestratie (blokken, spectra, accumulatie) — een serieus maar haalbaar project, en eerlijk gezegd een prachtige Fase-E-kers op de taart. Latency is dan één blokgrootte (~10–20 ms), prima voor een galm-send.
+
+Kortom: **ja, convolution reverb met echte IR's kan op dit bord** — niet als quick win, wel als realistisch einddoel. Het IR-bestand laden kan via de SPI-bus vanuit Cortex (of via de UART vanaf de PC) naar DDR3. Ik zet het als fase-onderdeel in het plan. De FDN-reverb die ik nu ga bouwen blijft daarnaast waardevol: die is "gratis" qua resources, heeft nul latency en is muzikaal stembaar (size/damping als CV) op een manier die een statische IR niet is.
+
+Nu aan het werk — branch maken en kijken hoe de WAV-render-flow werkt zodat de testbenches erop aansluiten:
+> 🔧 `Bash` — Create fx-echo-reverb branch
+> 🔧 `Read` — e:\Dev\Gowin\MS20_synth_voice\make_wave.py
+> 🔧 `ToolSearch`
+> 🔧 `TodoWrite` — takenlijst bijgewerkt
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\src\tape_echo.v
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\src\tape_echo.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\tape_echo.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\tape_echo.v
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\src\tape_echo_tb.v
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\scripts\cols2wav.py
+> 🔧 `PowerShell` — Run tape echo testbench in DSim
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\tape_echo.v
+> 🔧 `PowerShell` — Rerun tape echo testbench with initialized tape
+> 🔧 `Bash` — Render tape echo dry/wet WAV files
+> 🔧 `TodoWrite` — takenlijst bijgewerkt
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\src\fdn_reverb.v
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\src\fdn_reverb_tb.v
+> 🔧 `PowerShell` — Run FDN reverb testbench in DSim
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\fdn_reverb_tb.v
+> 🔧 `PowerShell` — Rerun reverb testbench with higher loop gain
+> 🔧 `Bash` — Render reverb dry/wet WAV files
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\boards\arty-s7\synth_check_fx.tcl
+> 🔧 `Bash` — Run out-of-context synthesis check of FX modules
+> 🔧 `Bash` — Check utilization, rerun synthesis check from repo root for hex resolution
+> 🔧 `Bash` — Show LUT/BRAM/DSP usage of both FX modules
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\doc\ARTY_S7_PLAN.md
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\doc\ARTY_S7_PLAN.md
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\doc\ARTY_S7_PLAN.md
+> 🔧 `Bash` — Commit FX modules on fx-echo-reverb branch
+> 🔧 `TodoWrite` — takenlijst bijgewerkt
+
+**🤖 Claude:**
+
+Klaar — branch `fx-echo-reverb` staat er met twee werkende, geverifieerde effectmodules (commit `123120f`, main is onaangeroerd).
+
+**Wat er gebouwd is:**
+
+- **[tape_echo.v](src/tape_echo.v)** — het Space-Echo-model uit het plan: vaste schrijfkop, fractionele leeskop die met een slew-limiet naar de delay-tijd glijdt (draai je aan de tijd, dan hoor je de tape-pitchzwiep), een wow-LFO voor bandzwabber, en een feedbackpad met demping en `4·tanh(x/4)`-bandsaturatie — feedback boven 1.0 mag, dan gaat hij zelf-oscilleren. 0,68 s band in BRAM. Testbench: **4/4 PASS** (echo exact op 0,25 s, verval klopt, geen overflow).
+- **[fdn_reverb.v](src/fdn_reverb.v)** — 8×8 feedback-delay-network: acht priemlengte-lijnen in één gedeelde BRAM, Hadamard-matrix van louter optellers, per lijn demping. Testbench: **5/5 PASS** — RT60 ≈ 2,5 s, dichte staart (99,7% van de samples actief), monotoon verval.
+
+**Luisteren kan nu al**, zonder hardware: in [wav/](wav/) staan `tape_echo_dry/wet.wav` (impuls + 220 Hz-burst door de echo) en `fdn_reverb_dry/wet.wav` (impuls door de galm).
+
+Beide modules volgen de één-mult-per-cyclus-les van vanmorgen, en dat is te zien: OOC-synthese op de S7-50 geeft **WNS +5,9 ns (echo) en +19,1 ns (reverb)** op 27 MHz. Alles samen (synth + beide effecten) zit op ~37/75 BRAM en ~41/120 DSP — het past ruim, precies zoals de raming in het plan.
+
+Je convolution-vraag heb ik ook in het plan verankerd als **Fase D+**: IR-bestanden zijn klein genoeg (megabytes, DDR3 lacht erom), directe convolutie is rekenkundig kansloos, maar gepartitioneerde FFT-convolutie met de gratis Xilinx FFT-core is een reëel einddoel.
+
+**Volgende stap** (nieuwe sessie, of zeg het maar): de effecten in `synth_top` hangen — een send-niveau per stem, wet/dry-mix, en een FX-slotblok in het SPI-contract zodat Cortex straks aan de echo-tijd kan draaien. En zodra jouw soldeerbout tijd heeft: eerst de kale demo horen, daarna dezelfde demo door band-echo en galm.
+
+---
+
+## 👤 Gebruiker (21)
+
+> tape_echo_dry/wet.wav -> het toontje is wat hoog en kort, klopt dat of was iets lagers (meer bas) de bedoeling?
+
+**🤖 Claude:**
+
+Goed gehoord — dat was gewoon m'n testsignaal, geen muzikale keuze: een blokgolfje van 220 Hz van maar 25 ms (een blipje dus, en door de korte duur klinkt het hoger dan het is). Onze synth leeft juist in het E1/A1-gebied. Ik maak er iets passenders van: een **55 Hz-blokgolf (A1) van 0,4 s met uitsterven** — dan hoor je de echo ook echt dub-achtig pompen:
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\tape_echo_tb.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\tape_echo_tb.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\tape_echo_tb.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\tape_echo_tb.v
+> 🔧 `PowerShell` — Rerun tape echo testbench with A1 bass burst
+> 🔧 `Bash` — Re-render echo WAVs and commit the bass burst change
+
+**🤖 Claude:**
+
+Klopte dus helemaal wat je hoorde: het was een 220 Hz-blipje van maar 25 ms — een kaal testsignaal, geen muzikale intentie. Nu staat er een **A1-basnoot (55 Hz) van 0,4 seconde die lineair uitsterft** — het register waar de synth zelf in leeft.
+
+De nieuwe [wav/tape_echo_wet.wav](wav/tape_echo_wet.wav) is opnieuw gerenderd: eerst hoor je nog de impuls-echo's (die blijven het meetsignaal voor de checks, alle 4 nog PASS), en vanaf 1,5 s de basnoot met z'n echo-staart op 0,25 s afstand — met de demping die elke herhaling iets doffer maakt, zoals een bandecho hoort te doen. Gecommit als `5b111fe` op de branch.
+
+Als de staart je nu nog te kort of te schoon klinkt: de interessante knoppen zijn `feedback` (0,55 nu; richting 0,8 wordt het hypnotisch, boven 1,0 gaat hij zingen) en `damp_a` (0,35 = flink dof per generatie). Zodra we hem in `synth_top` hangen worden dat gewoon CV-slots voor Cortex.
+
+---
+
+## 👤 Gebruiker (22)
+
+hierna: effecten in synth top hangen: de tang primer versie blijft gewoon zoals ie is, toch? Of kan ie ook van dit werk profiteren (past niet meer, denk ik? Of heeft de echo niet zoveel geheugen nodig; we hebben nog FA's zat, begrijp ik)?
+
+Je mag ook al wel beginnen aan de Convolution reverb. Wordt het allemaal een groot geheel, of is er ook met FPGA een logische splitsing mogelijk, zodat je dingen aan of uit kunt zetten met bouwen. Als de reverb mooi is, zou ie wellicht ook op een goedkoop chipje passen, of alleen de andere effecten. Als losse effect module.
+
+Ik denk een beetje vooruit in het maken van losse hardware modules.
+
+**🤖 Claude:**
+
+Goede vragen, en de antwoorden bepalen mooi de architectuur. Eerst de feiten, dan ga ik bouwen:
+
+**Kan de Tang meeprofiteren?** Deels. De schaarse resource op de GW2A is BRAM: we hebben er nog **9 van de 46 blokken vrij** (162 Kb). De volle tape-echo (0,68 s) kost er 32, de reverb 17 — passen dus niet naast de synth. Wat wél zou kunnen: een mini-versie van de echo (~130 ms slapback) in die 9 blokken. Logica en DSP's zijn er inderdaad zat ("FA's zat" klopt: 13% logica), maar geheugen is de muur. Mijn voorstel: de Tang-build blijft standaard exact zoals hij is, en ik maak de effecten **aanschakelbaar per build** — dan is een Tang-variant met slapback later een kwestie van één parameter.
+
+**Modulair bouwen kan uitstekend op FPGA** — dat is precies wat Verilog-`generate` doet (we gebruiken het al voor de DAC-keuze). Ik hang de effecten achter `FX_ECHO`/`FX_REVERB`-parameters: default 0 = Tang-bitstream logisch identiek aan nu; de Arty-wrapper zet ze aan. Zo krijg je gratis je "losse effectmodule"-toekomst: een **FX-only build** (zonder de 8 stemmen) past ruimschoots op een **Tang Nano 20K van ~€30** — sterker nog, die heeft 8 MB on-die PSRAM, waar een lange echoband én IR-spectra in passen. Een Cortex-effectkaartje in Teensy-formaat is dus realistisch.
+
+Nu eerst de integratie in `synth_top`. Even kijken hoe de mix naar de DAC loopt:
+> 🔧 `Bash` — Find the mix-to-DAC path in synth_top
+> 🔧 `Read` — e:\Dev\Gowin\MS20_synth_voice\src\synth_top.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\synth_top.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\synth_top.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\boards\arty-s7\synth_top_arty.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\boards\arty-s7\build.tcl
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\src\synth_top_fx_tb.v
+> 🔧 `PowerShell` — Run synth+FX integration smoke test in DSim
+> 🔧 `PowerShell` — Run default-build regression (FX off, no FX files needed)
+> 🔧 `Bash` — Verify default build output unchanged by FX generate blocks
+> 🔧 `Bash` — Render synth demo dry/wet-with-FX WAVs
+> 🔧 `Bash` — Rebuild Arty bitstream with echo and reverb enabled
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\doc\CONV_REVERB_DESIGN.md
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\scripts\conv_golden.py
+> 🔧 `Bash` — Run convolution golden model self-test
+> 🔧 `Bash` — Check or install numpy in the project venv
+> 🔧 `Bash` — Run convolution golden model with venv python
+> 🔧 `Bash` — Peek at Vivado build progress
+> 🔧 `Bash` — Check timing and utilization of the FX-enabled build
+> 🔧 `Bash` — Search build log and utilization hierarchy for the reverb instance
+> 🔧 `Bash` — Show full memory and DSP sections of utilization report
+> 🔧 `Bash` — Show the block RAM table with RAMB36/RAMB18 breakdown
+> 🔧 `Bash` — Generate hierarchical utilization report from routed checkpoint
+> 🔧 `Bash` — Find synthesis messages about the tape memory
+> 🔧 `Bash` — Search the synthesis run log for tape memory messages
+> 🔧 `Bash` — Locate synthesis log and search for tape messages
+
+**🤖 Claude:**
+
+Padfout van mezelf — de shell staat nog in `boards/arty-s7`. Opnieuw:
+> 🔧 `Bash` — Search synthesis log for tape memory optimization messages
+> 🔧 `Bash` — Check for readmemh file resolution errors in synthesis
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\boards\arty-s7\build.tcl
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\boards\arty-s7\build.tcl
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\boards\arty-s7\program.tcl
+> 🔧 `Bash` — Clean rebuild with non-project flow (hex files resolved, hard error checks)
+> 🔧 `Bash` — Check whether Vivado started despite missing log directory
+
+**🤖 Claude:**
+
+Vivado draait door (alleen het logbestand kwam niet op z'n plek — onschuldig; de output wordt sowieso gevangen). Nu is het wachten op de schone build met échte ROM-inhoud en de harde foutchecks. Zodra hij klaar is: rapporten controleren, herflashen, en alles op de branch committen.
+
+---
+
+## 👤 Gebruiker (23)
+
+<task-notification>
+<task-id>bm5ktlc4w</task-id>
+<tool-use-id>toolu_014iEZ3tt1y3EPEHj2QxbXZD</tool-use-id>
+<output-file>C:\Users\User\AppData\Local\Temp\claude\e--Dev-Gowin-MS20-synth-voice\925fb5f2-1821-42cf-aa0e-a48445a20a75\tasks\bm5ktlc4w.output</output-file>
+<status>completed</status>
+<summary>Background command "Clean rebuild with non-project flow (hex files resolved, hard error checks)" completed (exit code 0)</summary>
+</task-notification>
+> 🔧 `Bash` — Verify clean build: hex resolved, WNS, per-module utilization
+> 🔧 `Bash` — Show totals and flash the FX-enabled bitstream with real ROMs
+> 🔧 `Bash` — Commit FX integration, build fix and convolution groundwork
+> 🔧 `Edit` — C:\Users\User\.claude\projects\e--Dev-Gowin-MS20-synth-voice\memory\arty-s7-50-board.md
+
+**🤖 Claude:**
+
+Klaar — en er zat een belangrijke ontdekking in deze ronde. De samenvatting op al je vragen:
+
+## Blijft de Tang zoals hij is?
+Ja — en dat is nu ook *bewezen*: de effecten hangen achter `FX_ECHO`/`FX_REVERB`-parameters (default uit), en de default-build produceert **bit-identieke** output over 144k sim-samples. Kan de Tang meeprofiteren? Beperkt: er zijn nog maar 9 van de 46 BSRAM-blokken vrij. De volle echo (32 blokken) en reverb (17) passen niet, maar een **~130 ms slapback-variant** van dezelfde `tape_echo` (kleinere `MAX_LOG2`) zou in die 9 blokken kunnen. Logica/DSP is inderdaad geen probleem — geheugen is op de GW2A de muur.
+
+## Modulair bouwen / losse effectmodules
+Precies wat de architectuur nu doet: elke FX is een `generate`-schakelaar, dus per bord kies je een bitstream-variant uit dezelfde codebase. In [CONV_REVERB_DESIGN.md](doc/CONV_REVERB_DESIGN.md) staat het vooruitzicht uitgewerkt: een **FX-only build op een Tang Nano 20K (~€30, Teensy-formaat)** is realistisch als los Cortex-effectkaartje — zonder de 8 stemmen is er BSRAM genoeg voor echo+FDN, en de 8 MB on-die PSRAM van dat chipje kan zelfs IR-spectra hosten (conv tot ~2 s). Daarom houd ik de komende FFT bewust vendor-neutraal (geen Xilinx-IP).
+
+## Effecten zitten in synth_top — en op je bord
+De Arty-build heeft nu echo (0,33 s, dub-routing: reverb krijgt droog+echo) én galm (RT ≈ 1,8 s) achter de demo. **Geflasht en wel** — als je DAC eraan gaat, hoor je het meteen. Preview zonder solderen: [wav/synth_fx_wet.wav](wav/synth_fx_wet.wav) naast [synth_fx_dry.wav](wav/synth_fx_dry.wav).
+
+## Convolution reverb: begonnen
+Ontwerpdoc + **golden model** staan er: gepartitioneerde overlap-save (94 partities van 1024 voor een 4 s-IR), en het Python-model bewijst dat het 18-bit fixed-point-pad **83 dB SNR** haalt (doel >80). Volgende brok is de streaming-FFT in Verilog, die tegen dit model geverifieerd wordt.
+
+## En de eerlijke bekentenis
+Bij het integreren ontdekte ik dat Vivado's project-flow de hex-bestanden stilletjes niet vond: **alle eerdere Arty-bitstreams hadden lege ROM's** — ook die van vanmorgen (de LED-test zei daar niets over; DSim-verificaties stonden er los van). Niets verloren omdat de DAC er nog niet aan hing, maar mijn "klank-pariteit op hardware"-claim was voorbarig. De build-flow is nu herschreven zodat dit een *harde bouwfout* is, plus een automatische stop bij negatieve timing. De echte volle build: WNS +3,8 ns, 46/75 BRAM, 46/120 DSP.
+
+Alles staat op de branch (`123120f` → `0998d17`). Zodra jij soldeert, hoort je Spartan-7 zichzelf voor het eerst — mét bandecho en galm.
+
+---
+
+## 👤 Gebruiker (24)
+
+de synth fx wet wav klinkt wel erg overstuurd, wil je eens kijken? (/'luisteren')
+
+**🤖 Claude:**
+
+Je hebt vast gelijk — laat me eerst even 'luisteren' met statistiek: hoe vaak zit de wet-uitgang tegen de 16-bit clamp aan versus droog:
+> 🔧 `Bash` — Measure clipping statistics of dry vs wet output
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\synth_top.v
+> 🔧 `PowerShell` — Rerun FX integration sim with corrected wet levels
+> 🔧 `Bash` — Verify clipping is gone and re-render the WAVs
+> 🔧 `Bash` — Rebuild bitstream with corrected wet levels
+> 🔧 `Bash` — Commit the wet level fix
+
+**🤖 Claude:**
+
+Goed gehoord van je — en het was meetbaar precies wat je zei: **0,8% van de wet-samples stond hard plat tegen de 16-bit clamp**. De oorzaak was gain-staging: de effecten werken intern op "bandniveau" (±4.0 in Q12.20), terwijl de droge mix per conventie rond de 0,1–0,25 leeft — mijn wet-mix op ÷2 was daardoor het equivalent van een send die 4–8× te heet staat.
+
+Nu staat de echo op ÷16 en de reverb op ÷8: **nul geclipte samples**, wet-piek zelfs iets ónder droog, en de effecten liggen als een bed onder de arp in plaats van erbovenop. Luister maar opnieuw naar [wav/synth_fx_wet.wav](wav/synth_fx_wet.wav) — als het nu juist té bedeesd is hoor ik het graag, dan schuif ik een shift terug (uiteindelijk worden dit toch CV-slots die je vanuit Cortex live regelt, dus dit is alleen de default).
+
+De fix is gecommit (`b1d3f94`) en de bitstream wordt op de achtergrond herbouwd — zodra die klaar is flash ik hem naar het bord, dan staat er de goede versie op wanneer jouw soldeerbout klaar is.
+
+---
+
+## 👤 Gebruiker (25)
+
+<task-notification>
+<task-id>brd3ict75</task-id>
+<tool-use-id>toolu_018KhJo2GpfVxBDksxxHyoJS</tool-use-id>
+<output-file>C:\Users\User\AppData\Local\Temp\claude\e--Dev-Gowin-MS20-synth-voice\925fb5f2-1821-42cf-aa0e-a48445a20a75\tasks\brd3ict75.output</output-file>
+<status>completed</status>
+<summary>Background command "Rebuild bitstream with corrected wet levels" completed (exit code 0)</summary>
+</task-notification>
+> 🔧 `Bash` — Confirm build result and flash the corrected bitstream
+
+**🤖 Claude:**
+
+De gecorrigeerde bitstream is gebouwd (WNS +4,5 ns, alle checks groen) én geflasht — het bord draait nu de versie met nette wet-niveaus en echte ROM-inhoud.
+
+Daarmee is alles rond voor vandaag:
+
+- **Op het bord**: 8-stemmige synth + bandecho (0,33 s, met wow en tanh-saturatie) + FDN-galm, correcte gain-staging, wachtend op jouw PCM5102-soldeerwerk (SW0 aan = demo).
+- **Op de branch** `fx-echo-reverb` (5 commits): de twee FX-modules met groene zelf-checkende testbenches, de generate-gated integratie (Tang bewezen bit-identiek), de convolution-reverb-basis (ontwerpdoc + golden model op 83 dB SNR), en de build-flow-fix die lege ROM's voortaan hard laat falen.
+- **Om alvast te beluisteren**: `wav/synth_fx_dry.wav` vs `wav/synth_fx_wet.wav` (de demo zoals het bord hem nu speelt), plus de losse `tape_echo_*` en `fdn_reverb_*` renders en `conv_golden_wet.wav`.
+
+Volgende logische brokken wanneer je wilt: de vendor-neutrale `fft2048.v` voor de convolutie-galm, FX-parameters als CV-slots in het frame-protocol (afstemmen met Cortex ADR 0015), en de QSPI-flash zodat het bord na een power-cycle vanzelf opstart.
+
+---
+
+## 👤 Gebruiker (26)
+
+mooi!
+
+fft2048 is fijn
+
+Wat moet er nog afgestemd? Ik zie een redelijk complete ADR. Misschien belangrijk: we zijn tot de conclusie gekomen dat Cutoff freq gelijkwaardig is aan Pitch, dus ook een 16 bits DAC gaat gebruiken, maar dat maakt in het dCV -> dCV domein misschien minder uit.
+
+**🤖 Claude:**
+
+Over de afstemming: minder dan ik eerder dacht, nu ADR 0015 er ligt. Wat er nog open staat is vooral **semantiek, geen transport**:
+
+1. **Cutoff-als-pitch — goed besluit, en het betekent wél iets aan onze kant.** In het dCV-domein verandert er inderdaad niets (het blijft een 16-bit code op de bus), maar de *interpretatie* wel: als cutoff pitch-equivalent is, hoort de FPGA hem **exponentieel** te mappen (1 V/oct-achtig: code → frequentie → `g`-coëfficiënt via een tabelletje), waar hij nu quasi-lineair naar `g` gaat. Bonus: omdat cutoff al een per-stem slot is, krijg je dan gratis nette **filter-keytracking** (cutoff-CV = pitch-CV + offset vanuit de brain). Dat zet ik in de roadmap.
+2. **Globale FX-parameters passen niet in "blokken van 8"** — echo-tijd, feedback, reverb-size enz. zijn niet per-stem. Er moet dus een conventie komen voor een globaal parameterblok (bijv. een gereserveerde slot-range of een eigen caseId). Dat is het enige echte contractpunt dat nog mist.
+3. De al-genoteerde open punten: muzikale schaling van reson/drive samen met de brain, en `CvSegment` voor vloeiende sweeps.
+
+Ik noteer punt 1 even in de roadmap en ga dan de FFT bouwen:
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\doc\ROADMAP.md
+> 🔧 `TodoWrite` — takenlijst bijgewerkt
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\scripts\gen_fft_tables.py
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\src\fft2048.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\fft2048.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\fft2048.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\fft2048.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\fft2048.v
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\src\fft2048_tb.v
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\scripts\fft_check.py
+> 🔧 `Bash` — Generate FFT twiddle ROM and test vectors
+> 🔧 `PowerShell` — Run FFT testbench in DSim
+> 🔧 `Bash` — Compare FFT dumps against numpy reference
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\fft2048_tb.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\fft2048.v
+> 🔧 `PowerShell` — Rerun FFT testbench and numpy comparison
+> 🔧 `Bash` — Diagnose which permutation or conjugation matches the FFT output
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\fft2048_tb.v
+> 🔧 `PowerShell` — Rerun FFT testbench with race-free reads and check against numpy
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\fft2048.v
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\src\fft2048.v
+> 🔧 `PowerShell` — Rerun FFT with rounding and verify SNR targets
+> 🔧 `Edit` — e:\Dev\Gowin\MS20_synth_voice\boards\arty-s7\synth_check_fx.tcl
+> 🔧 `Bash` — OOC synthesis check including fft2048
+> 🔧 `Bash` — Commit the FFT engine and verification flow
+> 🔧 `TodoWrite` — takenlijst bijgewerkt
+
+**🤖 Claude:**
+
+De FFT staat — commit `94a154e` op de branch. Samenvatting:
+
+**fft2048.v** is af en geverifieerd: een vendor-neutrale (bewust géén Xilinx-IP, met het oog op je Tang-Nano-effectmodule) iteratieve radix-2 FFT, 2048 punten, 18-bit complex, met block-floating-point-schaling en één gedeelde vermenigvuldiger. De cijfers:
+
+- **Verificatie tegen numpy**: forward **79,0 dB SNR**, forward→inverse-roundtrip **74,4 dB** — boven de doelen (75/70), ruim genoeg voor de 83 dB-keten uit het golden model.
+- **Kosten**: 3 BRAM, 1 DSP, WNS +28,0 ns — hij is bijna gratis; ~5 ms per transform bij 27 MHz, en er passen er drie in één convolutieblok van 21,3 ms.
+- Twee leerzame bugs onderweg: de uitleespoort bleek 3 cycli latency te hebben plus een klassieke NBA-race bij samplen op de posedge (de testbench leest nu op de negedge), en afronden in plaats van afkappen bij de shifts leverde 6 dB ruisvloer op.
+
+**Je ADR-vraag** heb ik in de [ROADMAP](doc/ROADMAP.md) verankerd: het cutoff-als-pitch-besluit betekent aan FPGA-kant een *exponentiële* cutoff-mapping (tabel, zoals `note_phinc`) in plaats van de huidige quasi-lineaire — en dat geeft meteen nette filter-keytracking omdat cutoff al per stem geadresseerd is. Het enige echte contract-gat dat nog met Cortex afgestemd moet: een slotconventie voor **globale** FX-parameters (echo-tijd, reverb-size…), want de per-stem blokken-van-8 dekken die niet.
+
+**Volgende brok** (stap 3 van het conv-plan): de spectrale MAC-engine + frequency-delay-line met een gedrags-DDR3-model achter dezelfde poort-interface als de echte MIG straks — dan kunnen we een impuls door een synthetische IR halen en bit-exact tegen het golden model leggen. Zeg het maar wanneer; en ondertussen blijft het bord gewoon wachten op je soldeerbout.
+
