@@ -1101,3 +1101,88 @@ De FFT staat — commit `94a154e` op de branch. Samenvatting:
 
 **Volgende brok** (stap 3 van het conv-plan): de spectrale MAC-engine + frequency-delay-line met een gedrags-DDR3-model achter dezelfde poort-interface als de echte MIG straks — dan kunnen we een impuls door een synthetische IR halen en bit-exact tegen het golden model leggen. Zeg het maar wanneer; en ondertussen blijft het bord gewoon wachten op je soldeerbout.
 
+---
+
+## 👤 Gebruiker (27)
+
+<task-notification>
+<task-id>by64ije1j</task-id>
+<tool-use-id>toolu_01XMWzS3EusCL2mn2M2ceiFW</tool-use-id>
+<status>stopped</status>
+<summary>No completion record was found for this background shell command from the previous session. It may have been stopped (via the UI, Monitor timeout, or agent teardown — these leave no transcript marker), or it may have been running when the previous Claude Code process exited. Check the output file for partial results before assuming it completed.</summary>
+</task-notification>
+
+---
+
+## 👤 Gebruiker (28)
+
+ik werk de komende weken op mijn laptop
+
+Wil je een overdrachtsdocument maken?
+
+**🤖 Claude:**
+
+Goed idee — bij een machinewissel zitten de valkuilen vooral in toolchain en licenties. Even de actuele staat vastleggen:
+> 🔧 `Bash` — Capture git state: branch commits, working tree, remotes
+> 🔧 `Bash` — List docs, generated tables and scripts
+
+**🤖 Claude:**
+
+Belangrijk punt gevonden: **niets is gepusht** — `main` staat 1 commit voor op origin en `fx-echo-reverb` bestaat alleen lokaal. Even de rest van de omgeving inventariseren:
+> 🔧 `Bash` — Check whether wav files are tracked and branch upstream status
+> 🔧 `Bash` — Check uncommitted changes in the MusicBrain repo
+> 🔧 `Bash` — Verify how far local branches are ahead of origin
+> 🔧 `Bash` — Inspect modified chat export and Vivado scratch files
+
+**🤖 Claude:**
+
+Correctie op wat ik net zei: **`fx-echo-reverb` staat wél volledig op GitHub** (0 commits vooruit) — alleen de `main`-pointer loopt 1 commit achter. Alle code is dus veilig. Nu het opruimwerk en de overdracht:
+> 🔧 `Bash` — Gitignore Vivado scratch and FFT dumps, verify rules match
+
+**🤖 Claude:**
+
+Nu het overdrachtsdocument:
+> 🔧 `Write` — e:\Dev\Gowin\MS20_synth_voice\doc\OVERDRACHT.md
+> 🔧 `Bash` — Stage handover doc, gitignore and new WAV renders
+> 🔧 `Bash` — Commit handover doc and renders
+> 🔧 `Bash` — Confirm clean tree and remaining push gap
+
+**🤖 Claude:**
+
+Het overdrachtsdocument staat in [doc/OVERDRACHT.md](doc/OVERDRACHT.md), en de werkmap is nu helemaal schoon.
+
+**Op je vraag over losse bestanden:** er was inderdaad nog wat. De zeven nieuwe WAV-renders horen gewoon in git (er stonden er al 19), dus die zijn mee — daarmee kun je op de laptop de echo, reverb en de synth-met-FX beluisteren zonder dat de toolchain er al staat. De rest was Vivado-rommel (`.Xil/`, `clockInfo.txt`) en regenereerbare FFT-dumps; die zijn nu gitignored.
+
+**Wat er in het document staat:** de stand van beide borden, een setup-checklist voor de laptop, een verificatieset van vier sims om te bevestigen dat de nieuwe machine klopt, de zes valkuilen die ons deze week tijd kostten, en de openstaande draden.
+
+Twee dingen daaruit die je vóór de overstap wilt weten:
+
+1. **De Vivado-licentie is node-locked aan het MAC-adres van deze desktop.** Op de laptop werkt hij niet. Je hebt een tweede nodig — ook gratis, zelfde AMD-account, Host ID = het MAC van de laptop. Dat is vijf minuten werk, maar wel vooraf doen, anders start Vivado daar überhaupt niet.
+2. **`site.env` staat bewust niet in git** (bevat je ingest-token). Kopieer dat handmatig, anders kun je alleen naar localhost publiceren.
+
+**Nog te doen — en dit is het enige wat de overdracht kan breken:** er staan **twee commits lokaal die nog niet op GitHub staan** (het overdrachtsdocument zelf op `fx-echo-reverb`, plus de achterlopende `main`-pointer). Zeg "push" en ik zet beide branches recht; dan is alles op de laptop op te halen met een simpele `git clone` + `git checkout fx-echo-reverb`.
+
+---
+
+## 👤 Gebruiker (29)
+
+push
+> 🔧 `Bash` — Push both branches to origin
+> 🔧 `Bash` — Verify both branches are fully synced with origin
+
+**🤖 Claude:**
+
+Beide branches staan op GitHub en zijn volledig in sync — niets meer lokaal-only.
+
+Op de laptop kom je binnen met:
+
+```
+git clone https://github.com/MarkWestbroek/FPGA_MS20_synth_voice.git
+cd FPGA_MS20_synth_voice
+git checkout fx-echo-reverb        # hier ligt het actuele werk
+```
+
+Lees dan [doc/OVERDRACHT.md](doc/OVERDRACHT.md) — die begint met de stand van zaken en loopt door naar de setup-checklist. Twee dingen die niet in git zitten en die je zelf moet meenemen: `site.env` (je ingest-token) en een **nieuwe Vivado-licentie** voor het MAC-adres van de laptop.
+
+Fijne weken op de laptop — en veel plezier met de soldeerbout wanneer die tijd er is. Het bord staat klaar met echo en galm erop.
+
